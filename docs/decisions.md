@@ -24,3 +24,11 @@ Selective patterns to evaluate independently:
 Start with a deterministic controlled text workflow against seeded fictional data. The project-owned service controls customer scope, appointment confirmation, atomic idempotent changes and honest local handoff records. Treat adapter and tool output as untrusted and do not describe scripted responses as model inference. Validate real audio separately and mark it unverified until actually exercised. Reassess these provisional decisions when the blocked headed research lane is completed or explicitly waived.
 
 No paid APIs, paid services, real customer data, public deployment or production-experience claim are authorized by the current plan. Local-only operation does not in itself prove absence of outbound connections: enforce and test the boundary in the implementation.
+
+## Implementation update (2026-11-08)
+
+The once-empty target is now a Git repository containing a loopback FastAPI service, SQLite fictional state, form and exact-command conversation UI, evaluator and durable browser E2E scripts. The independently maintained reference repository remains a source of design context; this project owns its own implementation.
+
+The default remains controlled text with no model or hosted-provider fallback. Optional prerecorded local Whisper/eSpeak processing is explicitly enabled, requires trusted local assets and transcript review, and is not a live microphone or interruption path. See [the cost register](cost-and-evidence.md), [evidence](evidence.md), and [Pipecat experiment](framework-spike.md). Local ASR executables are trusted configuration and are not network-sandboxed automatically. A Pipecat text-frame experiment runs separately in a network namespace; the direct service remains the app path. No container or public deployment is required for the documented local workflow.
+
+The original requested headed research remains blocked and has not been represented as completed or waived. Language review and reliable live multilingual audio remain unverified. A local demo cannot establish production experience.

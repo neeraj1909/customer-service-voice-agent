@@ -38,3 +38,25 @@ export LOCAL_WHISPER_MODEL=/absolute/path/to/local-model.bin
 ```
 
 Select a prerecorded mono 16 kHz PCM16 WAV (maximum 30 seconds and 8 MiB), transcribe locally, and review or edit the transcript. Copying it to the command input does not send it: explicitly press **Send** after checking it, especially for `yes`. Select English or experimental Hindi recognition explicitly. A small local Hindi probe produced incorrect transcription; Hindi speech quality is unverified. Hindi requires a multilingual model; the filename check only rejects some known English-only naming patterns and cannot verify model capabilities. The latest assistant text can be synthesized by an explicit button using an installed `libespeak-ng.so.1`; the page provides audio controls for playback. This is a buffered prerecorded fixture path, not live microphone, interruption, Hindi ASR or speech-quality evidence. Nothing falls back to a hosted provider; missing local dependencies result in an error. Configure only trusted binaries and models. Check licenses and data provenance before acquiring or redistributing any assets. Sessions, transcripts and local temporary audio are intended for fictional data only.
+
+## Validation and evidence
+
+The controlled evaluator and isolated browser journeys can be reproduced with:
+
+```sh
+uv lock --check --offline
+uv run --offline ruff format --check .
+uv run --offline ruff check .
+uv run --offline pytest -q
+node --test web/test/*.test.mjs
+uv run --offline python scripts/evaluate.py --output /tmp/customer-service-eval.json
+uv run --offline python scripts/e2e/run.py
+```
+
+The browser runner needs Chrome or Chromium and Node and uses a disposable profile, server and SQLite database. The evaluator last recorded 18/18 exact-command cases passing: 6 each in English, Hindi and Hinglish. All 18 human language and semantic reviews remain unreviewed. These results cover the controlled command grammar, not general conversational ability. See [evaluation and audio evidence](docs/evidence.md) for timing boundaries, failure cases and limitations.
+
+For a local synthetic prerecorded audio end-to-end check with existing assets, use the opt-in command in [the E2E runbook](scripts/e2e/README.md). It prints the actual recognition result and corrects it before continuing: a pass does not mean ASR was accurate. In one browser run, synthetic “Order one hundred” was transcribed as “or at one point.” and needed manual correction. A separate synthetic Hindi sample also failed. No live microphone, acoustic interruption, natural speech quality or real-time latency was established.
+
+A separate [Pipecat text-frame spike](docs/framework-spike.md) demonstrates the fictional order lookup in an isolated framework experiment. It does not add a framework or live transport to the application. No Docker container was needed for this local demo. Its loopback bind, fictional session selector and simple UI are learning boundaries, not production authentication or deployment.
+
+The latest recorded validation passed 22 Python tests, 18 Node tests, offline Ruff and lock checks, two 18/18 controlled evaluations, and the durable browser E2E with synthetic audio and manual transcript correction. The separate Pipecat spike also passed in its network namespace. See [evidence](docs/evidence.md) for commands, artifacts and limitations. The current audio input inventory did not establish a working microphone; this remains a prerecorded audio demo.
