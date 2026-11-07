@@ -88,6 +88,10 @@ def create_app(db_path: Path | None = None, clock=time):
     def javascript():
         return FileResponse(WEB / "app.js", media_type="text/javascript")
 
+    @app.get("/conversation.mjs")
+    def conversation_module():
+        return FileResponse(WEB / "conversation.mjs", media_type="text/javascript")
+
     @app.post("/api/sessions")
     def create_session(body: SessionRequest):
         if body.customer_id not in {"cust-a", "cust-b"}:
