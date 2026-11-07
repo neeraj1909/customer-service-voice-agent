@@ -100,3 +100,74 @@ test('directive in tool output stays data and triggers no follow-on command', as
   assert.ok(rendered[0].includes(directive));
   assert.equal(convo.pending, null);
 });
+
+test('selected Hindi locale handles ambiguity and reports unavailable slots accurately', async () => {
+  const messages = [];
+  const unavailable = new Error('unavailable'); unavailable.code = 'unavailable';
+  const convo = new Conversation({say:m => messages.push(m), request:async () => { throw unavailable; }});
+  convo.setLanguage('hi');
+  await convo.send('कुछ चाहिए');
+  assert.match(messages.at(-1), /कमांड/);
+  await convo.send('बदलें appt-a-1 slot-3');
+  assert.match(messages.at(-2), /उपलब्ध नहीं/);
+  assert.doesNotMatch(messages.at(-2), /कमांड/);
+  assert.match(messages.at(-1), /स्थानीय सहायता/);
+});
+
+test('scoped not-found, empty slots, pending and successful change use selected language', async () => {
+  const messages = [];
+  const convo = new Conversation({say:m => messages.push(m), key:()=> 'k', request:async path => {
+    if (path.endsWith('/slots')) return {slots:[]};
+    if (path.endsWith('/propose')) return {confirmation_id:'c', appointment_id:'appt-a-1', original_slot:'slot-1', slot_id:'slot-2', time_utc:'2030-01-10T10:00:00Z'};
+    if (path.endsWith('/confirm')) return {appointment_id:'appt-a-1', slot_id:'slot-2'};
+    const error = new Error('not_found'); error.code = 'not_found'; throw error;
+  }});
+  await convo.send('समय appt-a-1');
+  assert.match(messages.at(-1), /कोई.*उपलब्ध नहीं/);
+  await convo.send('बदलें appt-a-1 slot-2');
+  await convo.send('ऑर्डर ord-a-100');
+  assert.match(messages.at(-1), /पहले.*हाँ या नहीं/);
+  await convo.send('हाँ');
+  assert.match(messages.at(-1), /सफल.*बदल/);
+  await convo.send('ऑर्डर ord-b-200');
+  assert.match(messages.at(-2), /नहीं मिला/);
+  assert.match(messages.at(-1), /स्थानीय सहायता/);
+});
+
+test('handoff failure is localized and never claims a record was created', async () => {
+  const messages = [];
+  const convo = new Conversation({say:m => messages.push(m), key:()=> 'k', request:async () => { const e = new Error('invalid_id'); e.code='invalid_id'; throw e; }});
+  await convo.send('मानव');
+  assert.match(messages.at(-1), /दर्ज नहीं/);
+  assert.doesNotMatch(messages.at(-1), /दर्ज हुआ/);
+});
+
+test('all three languages distinguish scoped missing record from unavailable slot', async () => {
+  const cases = [
+    {order:'order missing', change:'change appt-a-1 slot-3', missing:/not found/i, unavailable:/unavailable/i},
+    {order:'ऑर्डर missing', change:'बदलें appt-a-1 slot-3', missing:/नहीं मिला/, unavailable:/उपलब्ध नहीं/},
+    {order:'mera order missing', change:'badlo appt-a-1 slot-3', missing:/nahi mila/i, unavailable:/available nahi/i},
+  ];
+  for (const item of cases) {
+    const messages = [];
+    const convo = new Conversation({say:m => messages.push(m), request:async path => {
+      const error = new Error(path.endsWith('/order') ? 'not_found' : 'unavailable');
+      error.code = error.message; throw error;
+    }});
+    await convo.send(item.order);
+    assert.match(messages.at(-2), item.missing);
+    await convo.send(item.order.startsWith('ऑर्डर') ? 'नहीं' : item.order.startsWith('mera') ? 'nahin' : 'no');
+    await convo.send(item.change);
+    assert.match(messages.at(-2), item.unavailable);
+  }
+});
+
+test('uncertain handoff uses local-language uncertainty, never claims failure or success', async () => {
+  const messages = [];
+  const convo = new Conversation({say:m => messages.push(m), key:()=> 'k', request:async () => {
+    const error = new Error('unavailable'); error.uncertain = true; throw error;
+  }});
+  await convo.send('मानव');
+  assert.match(messages.at(-1), /अज्ञात/);
+  assert.doesNotMatch(messages.at(-1), /दर्ज हुआ|दर्ज नहीं/);
+});

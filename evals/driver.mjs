@@ -16,6 +16,7 @@ const request = createRequest({getSession: () => session_id, fetchImpl: async (p
 }});
 let key = 0;
 const conversation = new Conversation({request, say: message => messages.push(message), key: () => `eval-${++key}`});
+conversation.setLanguage(input.language);
 for (const command of input.commands) {
   const before = performance.now();
   const startMessage = messages.length;
