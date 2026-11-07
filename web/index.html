@@ -1,0 +1,13 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Fictional customer service</title></head>
+<body>
+<main>
+<h1>Fictional customer service</h1>
+<p>Local controlled text demo. No model, microphone, real customer or human agent is connected.</p>
+<label>Fictional customer <select id="customer"><option value="cust-a">Asha (cust-a)</option><option value="cust-b">Bilal (cust-b)</option></select></label>
+<button id="start">Start new session</button>
+<section><h2>Look up an order</h2><label>Order ID <input id="order" value="ord-a-100"></label><button id="lookup">Look up</button></section>
+<section><h2>Change an appointment</h2><label>Appointment ID <input id="appointment" value="appt-a-1"></label><button id="slots">List available slots</button> <label>Slot ID <input id="slot" value="slot-2"></label><button id="propose">Review change</button><p id="proposal">No change proposed.</p><button id="confirm" disabled>Yes, confirm this exact change</button><button id="reject" disabled>No, reject change</button></section>
+<section><h2>Request a local handoff</h2><label>Issue <input id="issue" value="I need help with my order"></label><label>Language <select id="language"><option value="en">English</option><option value="hi">Hindi</option><option value="hinglish">Hinglish</option></select></label><button id="handoff">Record local request</button></section>
+<h2>Result</h2><pre id="result" role="status" aria-live="polite">Start a session to begin.</pre>
+</main><script src="/app.js"></script></body></html>
