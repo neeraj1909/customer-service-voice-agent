@@ -8,8 +8,9 @@ from time import time
 
 from fastapi import Depends, FastAPI, Header, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 
+from . import audio
 from .domain import (
     AppointmentRequest,
     ConfirmationRequest,
@@ -18,6 +19,7 @@ from .domain import (
     ProposalRequest,
     RejectionRequest,
     SessionRequest,
+    SynthesisRequest,
 )
 from .tools import Store, ToolError
 
@@ -29,6 +31,10 @@ def create_app(db_path: Path | None = None, clock=time):
     store = Store(path, clock)
     sessions: dict[str, str] = {}
     app = FastAPI(title="Fictional local customer service")
+
+    @app.exception_handler(audio.AudioError)
+    async def audio_error(_request: Request, exc: audio.AudioError):
+        return JSONResponse({"error": exc.code}, status_code=exc.status)
 
     @app.exception_handler(ToolError)
     async def tool_error(_request: Request, exc: ToolError):
@@ -99,6 +105,23 @@ def create_app(db_path: Path | None = None, clock=time):
         token = secrets.token_hex(32)
         sessions[token] = body.customer_id
         return {"session_id": token, "customer_id": body.customer_id}
+
+    @app.post("/api/audio/transcribe")
+    async def transcribe(request: Request, _context=current_session):
+        if request.headers.get("content-type", "").split(";", 1)[0].strip().lower() != "audio/wav":
+            raise audio.AudioError("invalid_audio_type", 415)
+        data = bytearray()
+        async for chunk in request.stream():
+            if len(data) + len(chunk) > audio.MAX_AUDIO_BYTES:
+                raise audio.AudioError("audio_too_large", 413)
+            data.extend(chunk)
+        language = request.headers.get("x-audio-language", "en")
+        return {"text": await audio.transcribe(bytes(data), language), "language": language}
+
+    @app.post("/api/audio/synthesize")
+    async def synthesize(body: SynthesisRequest, _context=current_session):
+        wav = await audio.synthesize(body.text, body.language)
+        return Response(wav, media_type="audio/wav", headers={"Cache-Control": "no-store"})
 
     @app.post("/api/order")
     def order(body: OrderRequest, context=current_session):

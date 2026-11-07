@@ -35,3 +35,8 @@ class HandoffRequest(BaseModel):
     language: Literal["en", "hi", "hinglish"]
     summary: str = Field(min_length=1, max_length=500)
     idempotency_key: str
+
+
+class SynthesisRequest(BaseModel):
+    text: str = Field(min_length=1, max_length=500)
+    language: Literal["en", "hi"]

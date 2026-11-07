@@ -26,3 +26,15 @@ The confirmation ID and stable idempotency key bind a change to the session and 
 The page also offers a controlled command conversation, not general language understanding. Select a conversation language to choose clarification messages for unrecognized input; recognized commands can switch the current language. Supported exact examples are shown on screen in English (`order`, `slots`, `change`, `human`, `yes/no`), Devanagari (`ऑर्डर`, `समय`, `बदलें`, `मानव`, `हाँ/नहीं`) and Romanized Hindi-English (`mera order`, `slots dikhao`, `badlo`, `insaan`, `haan/nahin`). Unknown input does not authorize a tool or mutation. A failed or unresolved request may offer a local handoff; only an explicit affirmative records it. If a write response is lost, keep the page open and retry the exact same action; other actions remain blocked until the outcome is known. Reloading or restarting loses the in-memory session and retry handle, so do not interpret an interrupted response as a failed write. If the server has restarted and replay is rejected, inspect the local SQLite `appointments`, `handoffs`, and `operations` tables before starting a new session; the UI cannot recover the old session for you. These fixed commands do not establish broad language or speech ability.
 
 Run the command and retry checks with `node --test web/test/*.test.mjs`.
+
+## Optional prerecorded local audio
+
+This path is disabled by default. To opt in, point to an existing trusted local `whisper.cpp` CLI executable and model file (absolute paths) and start the same loopback server with the following additional environment variables:
+
+```sh
+export LOCAL_AUDIO_ENABLED=1
+export LOCAL_WHISPER_CLI=/absolute/path/to/whisper-cli
+export LOCAL_WHISPER_MODEL=/absolute/path/to/local-model.bin
+```
+
+Select a prerecorded mono 16 kHz PCM16 WAV (maximum 30 seconds and 8 MiB), transcribe locally, and review or edit the transcript. Copying it to the command input does not send it: explicitly press **Send** after checking it, especially for `yes`. Select English or experimental Hindi recognition explicitly. A small local Hindi probe produced incorrect transcription; Hindi speech quality is unverified. Hindi requires a multilingual model. The latest assistant text can be synthesized by an explicit button using an installed `libespeak-ng.so.1`; the page provides audio controls for playback. This is a buffered prerecorded fixture path, not live microphone, interruption, Hindi ASR or speech-quality evidence. Nothing falls back to a hosted provider; missing local dependencies result in an error. Configure only trusted binaries and models. Check licenses and data provenance before acquiring or redistributing any assets. Sessions, transcripts and local temporary audio are intended for fictional data only.

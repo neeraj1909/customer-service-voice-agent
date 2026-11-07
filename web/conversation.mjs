@@ -143,3 +143,12 @@ export function createRequest({getSession, fetchImpl = fetch}) {
     }
   };
 }
+
+export function clearPlayback(player, url, revoke = URL.revokeObjectURL) {
+  if (!url) return '';
+  player.pause();
+  player.removeAttribute('src');
+  player.load();
+  revoke(url);
+  return '';
+}

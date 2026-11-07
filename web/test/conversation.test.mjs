@@ -171,3 +171,11 @@ test('uncertain handoff uses local-language uncertainty, never claims failure or
   assert.match(messages.at(-1), /अज्ञात/);
   assert.doesNotMatch(messages.at(-1), /दर्ज हुआ|दर्ज नहीं/);
 });
+
+test('clearing prior response audio pauses playback and revokes its URL', async () => {
+  const {clearPlayback} = await import('../conversation.mjs');
+  const calls = [];
+  const player = {pause:() => calls.push('pause'), removeAttribute:key => calls.push(`remove:${key}`), load:() => calls.push('load')};
+  assert.equal(clearPlayback(player, 'blob:old', url => calls.push(`revoke:${url}`)), '');
+  assert.deepEqual(calls, ['pause', 'remove:src', 'load', 'revoke:blob:old']);
+});
