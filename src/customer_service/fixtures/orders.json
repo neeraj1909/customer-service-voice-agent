@@ -1,0 +1,251 @@
+{
+  "schema_version": 1,
+  "provenance": {
+    "classification": "wholly fictional static order fixtures",
+    "generated_by": "gpt-6.1-sol",
+    "route": "collaboration delegation",
+    "date": "2026-11-09"
+  },
+  "orders": [
+    {
+      "id": "ord-a-201",
+      "customer": "cust-a",
+      "status": "processing"
+    },
+    {
+      "id": "ord-a-202",
+      "customer": "cust-a",
+      "status": "shipped"
+    },
+    {
+      "id": "ord-a-203",
+      "customer": "cust-a",
+      "status": "delivered"
+    },
+    {
+      "id": "ord-a-204",
+      "customer": "cust-a",
+      "status": "processing"
+    },
+    {
+      "id": "ord-a-205",
+      "customer": "cust-a",
+      "status": "shipped"
+    },
+    {
+      "id": "ord-a-206",
+      "customer": "cust-a",
+      "status": "delivered"
+    },
+    {
+      "id": "ord-a-207",
+      "customer": "cust-a",
+      "status": "processing"
+    },
+    {
+      "id": "ord-a-208",
+      "customer": "cust-a",
+      "status": "shipped"
+    },
+    {
+      "id": "ord-a-209",
+      "customer": "cust-a",
+      "status": "delivered"
+    },
+    {
+      "id": "ord-a-210",
+      "customer": "cust-a",
+      "status": "processing"
+    },
+    {
+      "id": "ord-a-211",
+      "customer": "cust-a",
+      "status": "shipped"
+    },
+    {
+      "id": "ord-a-212",
+      "customer": "cust-a",
+      "status": "delivered"
+    },
+    {
+      "id": "ord-a-213",
+      "customer": "cust-a",
+      "status": "processing"
+    },
+    {
+      "id": "ord-a-214",
+      "customer": "cust-a",
+      "status": "shipped"
+    },
+    {
+      "id": "ord-a-215",
+      "customer": "cust-a",
+      "status": "delivered"
+    },
+    {
+      "id": "ord-a-216",
+      "customer": "cust-a",
+      "status": "processing"
+    },
+    {
+      "id": "ord-a-217",
+      "customer": "cust-a",
+      "status": "shipped"
+    },
+    {
+      "id": "ord-a-218",
+      "customer": "cust-a",
+      "status": "delivered"
+    },
+    {
+      "id": "ord-a-219",
+      "customer": "cust-a",
+      "status": "processing"
+    },
+    {
+      "id": "ord-a-220",
+      "customer": "cust-a",
+      "status": "shipped"
+    },
+    {
+      "id": "ord-a-221",
+      "customer": "cust-a",
+      "status": "delivered"
+    },
+    {
+      "id": "ord-a-222",
+      "customer": "cust-a",
+      "status": "processing"
+    },
+    {
+      "id": "ord-a-223",
+      "customer": "cust-a",
+      "status": "shipped"
+    },
+    {
+      "id": "ord-a-224",
+      "customer": "cust-a",
+      "status": "delivered"
+    },
+    {
+      "id": "ord-b-201",
+      "customer": "cust-b",
+      "status": "processing"
+    },
+    {
+      "id": "ord-b-202",
+      "customer": "cust-b",
+      "status": "shipped"
+    },
+    {
+      "id": "ord-b-203",
+      "customer": "cust-b",
+      "status": "delivered"
+    },
+    {
+      "id": "ord-b-204",
+      "customer": "cust-b",
+      "status": "processing"
+    },
+    {
+      "id": "ord-b-205",
+      "customer": "cust-b",
+      "status": "shipped"
+    },
+    {
+      "id": "ord-b-206",
+      "customer": "cust-b",
+      "status": "delivered"
+    },
+    {
+      "id": "ord-b-207",
+      "customer": "cust-b",
+      "status": "processing"
+    },
+    {
+      "id": "ord-b-208",
+      "customer": "cust-b",
+      "status": "shipped"
+    },
+    {
+      "id": "ord-b-209",
+      "customer": "cust-b",
+      "status": "delivered"
+    },
+    {
+      "id": "ord-b-210",
+      "customer": "cust-b",
+      "status": "processing"
+    },
+    {
+      "id": "ord-b-211",
+      "customer": "cust-b",
+      "status": "shipped"
+    },
+    {
+      "id": "ord-b-212",
+      "customer": "cust-b",
+      "status": "delivered"
+    },
+    {
+      "id": "ord-b-213",
+      "customer": "cust-b",
+      "status": "processing"
+    },
+    {
+      "id": "ord-b-214",
+      "customer": "cust-b",
+      "status": "shipped"
+    },
+    {
+      "id": "ord-b-215",
+      "customer": "cust-b",
+      "status": "delivered"
+    },
+    {
+      "id": "ord-b-216",
+      "customer": "cust-b",
+      "status": "processing"
+    },
+    {
+      "id": "ord-b-217",
+      "customer": "cust-b",
+      "status": "shipped"
+    },
+    {
+      "id": "ord-b-218",
+      "customer": "cust-b",
+      "status": "delivered"
+    },
+    {
+      "id": "ord-b-219",
+      "customer": "cust-b",
+      "status": "processing"
+    },
+    {
+      "id": "ord-b-220",
+      "customer": "cust-b",
+      "status": "shipped"
+    },
+    {
+      "id": "ord-b-221",
+      "customer": "cust-b",
+      "status": "delivered"
+    },
+    {
+      "id": "ord-b-222",
+      "customer": "cust-b",
+      "status": "processing"
+    },
+    {
+      "id": "ord-b-223",
+      "customer": "cust-b",
+      "status": "shipped"
+    },
+    {
+      "id": "ord-b-224",
+      "customer": "cust-b",
+      "status": "delivered"
+    }
+  ]
+}
