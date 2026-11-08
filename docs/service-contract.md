@@ -24,6 +24,12 @@ A clean evaluation case starts with the following versioned fixture; timestamps 
 | Slot | `slot-2` | 2030-01-10T10:00:00Z; available |
 | Slot | `slot-3` | 2030-01-10T11:00:00Z; occupied by `appt-b-1` |
 
+### Expanded fictional order fixture
+
+The two original order rows above remain unchanged. The 2026-11-09 expansion adds `ord-a-201` through `ord-a-224` for `cust-a`, and `ord-b-201` through `ord-b-224` for `cust-b`, with eight additional orders per customer for each of `processing`, `shipped`, and `delivered` (48 new orders, 50 total in a fresh unmodified database). For Asha, `ord-a-201` is processing, `ord-a-202` shipped, and `ord-a-203` delivered; the status sequence repeats every three IDs. The same sequence applies to Bilal's corresponding IDs. All records are fictional static data.
+
+A one-time additive upgrade inserts only missing fixture IDs and never overwrites a conflicting row. Therefore existing databases can legitimately differ from a fresh seed; authorization continues to depend on the actual stored customer, not the ID's apparent prefix. Local regression and browser E2E checks covered migration and preserved conflicting records; see [evidence](evidence.md). The isolation and indistinguishable `not_found` requirements below remain binding regardless of fixture conflicts.
+
 Slot and appointment state are authoritative, rather than natural-language statements or cached model context. Slot availability is checked again within the commit transaction. A slot holds at most one appointment. A request for the appointment's current slot returns an explicit no-op result and creates no proposal, confirmation, or booking.
 
 The following are logical typed contracts; transport and exact names may be chosen during implementation. Each returns a typed success or error, and no error reveals another customer's existence.

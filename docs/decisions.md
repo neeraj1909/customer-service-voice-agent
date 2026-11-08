@@ -32,3 +32,11 @@ The once-empty target is now a Git repository containing a loopback FastAPI serv
 The default remains controlled text with no model or hosted-provider fallback. Optional prerecorded local Whisper/eSpeak processing is explicitly enabled, requires trusted local assets and transcript review, and is not a live microphone or interruption path. See [the cost register](cost-and-evidence.md), [evidence](evidence.md), and [Pipecat experiment](framework-spike.md). Local ASR executables are trusted configuration and are not network-sandboxed automatically. A Pipecat text-frame experiment runs separately in a network namespace; the direct service remains the app path. No container or public deployment is required for the documented local workflow.
 
 The original requested headed research remains blocked and has not been represented as completed or waived. Language review and reliable live multilingual audio remain unverified. A local demo cannot establish production experience.
+
+## Synthetic order fixture expansion (2026-11-09)
+
+A `gpt-6.1-sol` worker invoked through collaboration delegation generated a deterministic proposal for 48 wholly fictional additional orders: 24 for each existing customer, evenly split across processing, shipped and delivered. The two original rows remain separate. The static project-owned fixture is [`src/customer_service/fixtures/orders.json`](../src/customer_service/fixtures/orders.json); the original proposal is `/tmp/gpt61-order-dataset-proposal.json` (temporary). No runtime model is needed. No cost conclusion is made about the delegation. This is illustrative data, not representative customer or order statistics.
+
+The migration is additive and one-time: preserve existing records and skip conflicting IDs rather than overwriting them. Actual persisted customer ownership remains authoritative for lookups. A local legacy-database E2E check covered a conflict and two restarts; a conflict can leave an existing record different from the clean fixture.
+
+The supported run path is a full source checkout with `src/customer_service/fixtures/orders.json` and `web/` present. Wheel and other installed-distribution packaging of these assets is unverified; do not describe it as supported without a separate packaging test.
