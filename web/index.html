@@ -6,8 +6,9 @@
 <p>Local controlled-command demo. No conversational language model, microphone, real customer or human agent is connected; prerecorded audio is optional.</p>
 <label>Fictional customer <select id="customer"><option value="cust-a">Asha (cust-a)</option><option value="cust-b">Bilal (cust-b)</option></select></label>
 <button id="start">Start new session</button>
+<p id="session-examples" role="status">Start a session to see that fictional customer's example orders.</p>
 <section><h2>Controlled command conversation</h2>
-<p>Exact commands only: <code>order ord-a-100</code>, <code>ऑर्डर ord-a-100</code>, <code>mera order ord-a-100</code>; <code>slots appt-a-1</code>, <code>समय appt-a-1</code>; <code>change appt-a-1 slot-2</code>, <code>बदलें appt-a-1 slot-2</code>, <code>badlo appt-a-1 slot-2</code>; <code>human</code>, <code>मानव</code>, <code>insaan</code>. Confirm with <code>yes/no</code>, <code>हाँ/नहीं</code> or <code>haan/nahin</code>.</p>
+<p>Exact commands only: <code>order ID</code>, <code>ऑर्डर ID</code>, <code>mera order ID</code> (replace ID with a session example); <code>slots APPOINTMENT-ID</code>, <code>समय APPOINTMENT-ID</code>; <code>change APPOINTMENT-ID slot-2</code>, <code>बदलें APPOINTMENT-ID slot-2</code>, <code>badlo APPOINTMENT-ID slot-2</code>; <code>human</code>, <code>मानव</code>, <code>insaan</code>. Confirm with <code>yes/no</code>, <code>हाँ/नहीं</code> or <code>haan/nahin</code>.</p>
 <label>Conversation language <select id="conversation-language"><option value="en">English</option><option value="hi">हिन्दी</option><option value="hinglish">Hinglish</option></select></label>
 <div id="conversation-log" role="log" aria-live="polite"></div><form id="conversation-form"><label>Command <input id="conversation-input" autocomplete="off" maxlength="300"></label><button id="conversation-submit">Send</button></form></section>
 <section id="audio-workflow"><h2>Optional prerecorded audio</h2>

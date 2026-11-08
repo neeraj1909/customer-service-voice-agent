@@ -1,11 +1,13 @@
-import { Conversation, createRequest, clearPlayback } from './conversation.mjs';
+import { Conversation, createRequest, clearPlayback, orderExamples } from './conversation.mjs';
 let session = '', proposal = null, changeKey = '', handoffPending = null;
 const $ = id => document.getElementById(id);
 const result = value => { $('result').textContent = typeof value === 'string' ? value : JSON.stringify(value, null, 2); };
 const call = createRequest({getSession: () => session});
 function clearProposal() { proposal = null; changeKey = ''; $('confirm').disabled = true; $('reject').disabled = true; $('proposal').textContent = 'No change proposed.'; }
-async function run(fn) { try { result(await fn()); } catch (error) { result(error.definitive ? `Request rejected: ${error.message}. No change was made; correct the input.` : `Request was not confirmed: ${error.message}. If the connection was interrupted, the outcome may be unknown; retry the same request.`); } }
-$('start').onclick = () => run(async () => { const data = await call('/api/sessions', {customer_id:$('customer').value}); session = data.session_id; handoffPending = null; clearProposal(); conversation.reset(); conversation.setLanguage($('conversation-language').value); transcript.replaceChildren(); lastAssistant = ''; invalidateTranscript(); invalidateSynthesis(); return `Session started for ${data.customer_id}.`; });
+let activeRequests = 0;
+function setBusy(change) { activeRequests += change; $('customer').disabled = activeRequests > 0; $('start').disabled = activeRequests > 0; }
+async function run(fn) { setBusy(1); try { result(await fn()); } catch (error) { result(error.definitive ? `Request rejected: ${error.message}. No change was made; correct the input.` : `Request was not confirmed: ${error.message}. If the connection was interrupted, the outcome may be unknown; retry the same request.`); } finally { setBusy(-1); } }
+$('start').onclick = () => run(async () => { const data = await call('/api/sessions', {customer_id:$('customer').value}); session = data.session_id; handoffPending = null; clearProposal(); conversation.reset(); conversation.setLanguage($('conversation-language').value); transcript.replaceChildren(); lastAssistant = ''; invalidateTranscript(); invalidateSynthesis(); const examples = orderExamples(data.customer_id); $('session-examples').textContent = `Active fictional customer: ${data.customer_id}. Example order IDs for a fresh database: ${examples.join(', ')}. Existing databases may differ; look up an ID to check its status.`; $('order').value = examples[0] || ''; $('appointment').value = data.customer_id === 'cust-a' ? 'appt-a-1' : 'appt-b-1'; return `Session started for ${data.customer_id}.`; });
 $('lookup').onclick = () => run(() => call('/api/order', {order_id:$('order').value}));
 $('slots').onclick = () => run(() => call('/api/appointments/slots', {appointment_id:$('appointment').value}));
 $('propose').onclick = () => run(async () => { const nextProposal = await call('/api/appointments/propose', {appointment_id:$('appointment').value, slot_id:$('slot').value}); clearProposal(); proposal = nextProposal; if (proposal.no_op) { clearProposal(); return 'Appointment already uses that slot; no change was made.'; } changeKey = crypto.randomUUID(); $('proposal').textContent = `Move ${proposal.appointment_id} from ${proposal.original_slot} to ${proposal.slot_id} at ${proposal.time_utc}?`; $('confirm').disabled = false; $('reject').disabled = false; return proposal; });
@@ -27,7 +29,8 @@ $('conversation-form').onsubmit = async event => {
   copiedTranscript = false;
   say('You', value);
   $('conversation-submit').disabled = true;
-  try { await conversation.send(value); $('conversation-language').value = conversation.language; } finally { $('conversation-submit').disabled = false; input.focus(); }
+  setBusy(1);
+  try { await conversation.send(value); $('conversation-language').value = conversation.language; } finally { setBusy(-1); $('conversation-submit').disabled = false; input.focus(); }
 };
 
 const audioStatus = message => { $('audio-status').textContent = message; };

@@ -1,3 +1,10 @@
+// Public examples from the fictional seed, not an order-listing API.
+export function orderExamples(customer) {
+  if (customer === 'cust-a') return ['ord-a-201', 'ord-a-202', 'ord-a-203'];
+  if (customer === 'cust-b') return ['ord-b-201', 'ord-b-202', 'ord-b-203'];
+  return [];
+}
+
 // An explicit command grammar, not a natural-language model.
 export function parseCommand(input) {
   const text = input.trim();
@@ -38,7 +45,7 @@ export class Conversation {
   setLanguage(language) { if (!Object.hasOwn(text, language)) return false; this.language = language; return true; }
   message(key) { return text[this.language][key]; }
   errorMessage(error) { const code = error.code || error.message; return this.message(['not_found', 'unavailable', 'invalid_id', 'stale_confirmation'].includes(code) ? code : 'tool_error'); }
-  status(value) { return ({hi:{shipped:'भेज दिया गया', processing:'प्रक्रिया में'}, hinglish:{shipped:'bhej diya gaya', processing:'process mein'}}[this.language] || {})[value] || value; }
+  status(value) { return ({hi:{shipped:'भेज दिया गया', processing:'प्रक्रिया में', delivered:'पहुंचा दिया गया'}, hinglish:{shipped:'bhej diya gaya', processing:'process mein', delivered:'deliver ho gaya'}}[this.language] || {})[value] || value; }
   async execute(path, body, onSuccess, onError) {
     try {
       const response = await this.request(path, body);
