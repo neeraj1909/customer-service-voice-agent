@@ -64,8 +64,15 @@ def check_case(case, actual):
         for fragment in fragments:
             if fragment.casefold() not in visible:
                 failures.append(f"turn {index} missing visible fragment {fragment!r}")
-    if any("ord-b-200" in json.dumps(t["response"]) for t in trace):
-        failures.append("foreign customer order disclosed")
+    for forbidden in expected.get("forbidden_response_values", []):
+        if any(forbidden in json.dumps(t["response"], ensure_ascii=False) for t in trace):
+            failures.append("foreign customer order disclosed")
+    if (
+        expected.get("responses_equal")
+        and len(trace) >= 2
+        and trace[0]["response"] != trace[1]["response"]
+    ):
+        failures.append("foreign and unknown responses differ")
     messages = " ".join(actual.get("messages", [])).lower()
     for claim in (
         "a human has joined",
@@ -176,6 +183,7 @@ def source_hashes():
         ROOT / "scripts/evaluate.py",
         ROOT / "pyproject.toml",
         ROOT / "uv.lock",
+        ROOT / "src/customer_service/fixtures/orders.json",
     ]
     paths.extend(sorted((ROOT / "src/customer_service").glob("*.py")))
     return {

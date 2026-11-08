@@ -77,3 +77,24 @@ def test_missing_proposal_details_and_missing_visible_output_fail():
     assert len(evaluate.check_case(case, actual)) == 4
     actual["turn_messages"] = [["appt-a-1: slot-1 → slot-2, 2030-01-10T10:00:00Z"]]
     assert evaluate.check_case(case, actual) == []
+
+
+def test_hashes_include_versioned_order_fixture():
+    assert "src/customer_service/fixtures/orders.json" in evaluate.source_hashes()
+
+
+def test_case_specific_forbidden_values_detect_disclosure():
+    case = {
+        "expected": {
+            "paths": ["/api/order"],
+            "appointment_slot": "slot-1",
+            "handoffs": 0,
+            "forbidden_response_values": ["ord-b-203"],
+        }
+    }
+    actual = {
+        "trace": [{"path": "/api/order", "status": 200, "response": {"id": "ord-b-203"}}],
+        "appointment_slot": "slot-1",
+        "handoffs": 0,
+    }
+    assert evaluate.check_case(case, actual)

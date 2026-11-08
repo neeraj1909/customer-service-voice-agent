@@ -3,7 +3,7 @@ import {Conversation, createRequest} from '../web/conversation.mjs';
 import {performance} from 'node:perf_hooks';
 const [base, raw] = process.argv.slice(2);
 const input = JSON.parse(raw);
-const start = await fetch(`${base}/api/sessions`, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({customer_id:'cust-a'})});
+const start = await fetch(`${base}/api/sessions`, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({customer_id:input.customer || 'cust-a'})});
 if (!start.ok) throw new Error('session setup failed');
 const {session_id} = await start.json();
 const trace = [], messages = [], turnMessages = [], durations = [];
