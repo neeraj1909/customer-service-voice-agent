@@ -82,7 +82,7 @@ def one_run(tmp, name, chrome, *, cli=None, model=None):
         )
         try:
             wait_for_server(base, server)
-            script = "audio.cjs" if name == "audio" else "conversation.cjs"
+            script = {"audio": "audio.cjs", "orders": "orders.cjs"}.get(name, "conversation.cjs")
             subprocess.run(
                 ["node", str(SCRIPTS / script)], cwd=ROOT, env=env, check=True, timeout=180
             )
@@ -128,8 +128,11 @@ def main():
             parser.error("audio requires an existing local CLI and model, and ffmpeg")
     with tempfile.TemporaryDirectory(prefix="customer-e2e-") as name:
         tmp = Path(name)
-        for language in ("en", "hi", "hinglish"):
+        for language in ("en", "hi", "hinglish", "orders"):
             one_run(tmp, language, args.chrome)
+        subprocess.run(
+            [sys.executable, str(SCRIPTS / "upgrade.py")], cwd=ROOT, check=True, timeout=90
+        )
         if args.audio:
             raw = subprocess.run(
                 [sys.executable, str(ROOT / "src/customer_service/audio_synth_worker.py"), "en"],
