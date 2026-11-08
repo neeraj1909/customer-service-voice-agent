@@ -2,6 +2,19 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { parseCommand, Conversation } from '../conversation.mjs';
 
+test('fictional order examples match each selected customer and delivered is localized', async () => {
+  const {orderExamples} = await import('../conversation.mjs');
+  assert.deepEqual(orderExamples('cust-a'), ['ord-a-201', 'ord-a-202', 'ord-a-203']);
+  assert.deepEqual(orderExamples('cust-b'), ['ord-b-201', 'ord-b-202', 'ord-b-203']);
+  assert.deepEqual(orderExamples('other'), []);
+  const messages = [];
+  const conversation = new Conversation({say: m => messages.push(m), request: async () => ({id:'ord-a-203', status:'delivered'})});
+  for (const [command, expected] of [['order ord-a-203', 'delivered'], ['ऑर्डर ord-a-203', 'पहुंचा दिया गया'], ['mera order ord-a-203', 'deliver ho gaya']]) {
+    await conversation.send(command);
+    assert.ok(messages.at(-1).includes(expected));
+  }
+});
+
 test('only complete explicit commands are accepted in English, Hindi and Hinglish', () => {
   assert.deepEqual(parseCommand('mera order ord-a-100'), {type:'order', id:'ord-a-100', language:'hinglish'});
   assert.deepEqual(parseCommand('बदलें appt-a-1 slot-2'), {type:'change', appointment:'appt-a-1', slot:'slot-2', language:'hi'});
