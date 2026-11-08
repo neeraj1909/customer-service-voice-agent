@@ -2,13 +2,63 @@
 
 import hashlib
 import json
+import logging
 import re
 import secrets
 import sqlite3
 import time
+from collections import Counter
 from collections.abc import Callable
 from contextlib import contextmanager
 from pathlib import Path
+
+FIXTURE_PATH = Path(__file__).with_name("fixtures") / "orders.json"
+FIXTURE_SHA256 = "3ba3becab9be35e39a468c31b8da396c95938577c4e0de52fc473146b588cfbe"
+FIXTURE_MARKER = "synthetic-orders-v1"
+logger = logging.getLogger(__name__)
+
+
+def load_order_fixture():
+    """Validate the complete, immutable static fixture before opening the database."""
+    try:
+        raw = FIXTURE_PATH.read_bytes()
+        if hashlib.sha256(raw).hexdigest() != FIXTURE_SHA256:
+            raise ValueError("synthetic order fixture hash mismatch")
+        fixture = json.loads(raw)
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise ValueError("synthetic order fixture unavailable or invalid") from exc
+    if not isinstance(fixture, dict) or fixture.get("schema_version") != 1:
+        raise ValueError("invalid synthetic order fixture schema")
+    rows = fixture.get("orders")
+    if not isinstance(rows, list) or len(rows) != 48:
+        raise ValueError("invalid synthetic order fixture count")
+    seen = set()
+    counts = Counter()
+    for row in rows:
+        if not isinstance(row, dict) or set(row) != {"id", "customer", "status"}:
+            raise ValueError("invalid synthetic order fixture row")
+        order_id, customer, status = row["id"], row["customer"], row["status"]
+        if (
+            not isinstance(order_id, str)
+            or not valid_id(order_id)
+            or not isinstance(customer, str)
+            or customer not in {"cust-a", "cust-b"}
+            or not order_id.startswith(f"ord-{customer[-1]}-")
+            or order_id in {"ord-a-100", "ord-b-200"}
+            or order_id in seen
+            or not isinstance(status, str)
+            or status not in {"processing", "shipped", "delivered"}
+        ):
+            raise ValueError("invalid synthetic order fixture values")
+        seen.add(order_id)
+        counts[(customer, status)] += 1
+    if any(
+        counts[(customer, status)] != 8
+        for customer in ("cust-a", "cust-b")
+        for status in ("processing", "shipped", "delivered")
+    ):
+        raise ValueError("invalid synthetic order fixture distribution")
+    return rows
 
 
 class ToolError(Exception):
@@ -24,6 +74,8 @@ def valid_id(value: str, limit: int = 80) -> bool:
 class Store:
     def __init__(self, path: Path, clock: Callable[[], float] = time.time):
         self.path, self.clock = path, clock
+        orders = load_order_fixture()
+        collisions = 0
         with self.connect() as db:
             db.executescript("""
                 CREATE TABLE IF NOT EXISTS orders(id TEXT PRIMARY KEY, customer TEXT NOT NULL, status TEXT NOT NULL);
@@ -38,8 +90,10 @@ class Store:
                 CREATE TABLE IF NOT EXISTS handoffs(id TEXT PRIMARY KEY, session TEXT NOT NULL,
                     customer TEXT NOT NULL, issue TEXT NOT NULL, language TEXT NOT NULL, summary TEXT NOT NULL);
             """)
-            # Seed only once; never restore changed state on restart.
+            # executescript completes DDL before beginning the serialized seed transaction.
             db.execute("CREATE TABLE IF NOT EXISTS metadata(key TEXT PRIMARY KEY)")
+            db.execute("BEGIN IMMEDIATE")
+            # Seed only once; never restore changed state on restart.
             if not db.execute("SELECT 1 FROM metadata WHERE key='seeded'").fetchone():
                 db.executemany(
                     "INSERT INTO slots VALUES (?, ?)",
@@ -58,6 +112,19 @@ class Store:
                     [("appt-a-1", "cust-a", "slot-1", 1), ("appt-b-1", "cust-b", "slot-3", 1)],
                 )
                 db.execute("INSERT INTO metadata VALUES ('seeded')")
+            if not db.execute("SELECT 1 FROM metadata WHERE key=?", (FIXTURE_MARKER,)).fetchone():
+                for order in orders:
+                    inserted = db.execute(
+                        "INSERT INTO orders(id, customer, status) VALUES (?, ?, ?) ON CONFLICT(id) DO NOTHING",
+                        (order["id"], order["customer"], order["status"]),
+                    )
+                    if inserted.rowcount == 0:
+                        collisions += 1
+                db.execute("INSERT INTO metadata VALUES (?)", (FIXTURE_MARKER,))
+        if collisions:
+            logger.warning(
+                "Preserved %d existing order(s) colliding with synthetic fixture IDs", collisions
+            )
 
     @contextmanager
     def connect(self):
