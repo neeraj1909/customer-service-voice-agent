@@ -83,6 +83,17 @@ def test_voice_model_has_no_mutating_tools():
     }
 
 
+def test_voice_config_respects_language_and_allows_interruption():
+    config = session_config()
+    instructions = config["instructions"]
+    assert "explicit ongoing reply-language preference" in instructions
+    assert "language of the current request" in instructions
+    assert "cough, sniff or other non-speech sound" in instructions
+    vad = config["audio"]["input"]["turn_detection"]
+    assert vad["interrupt_response"] is True
+    assert vad["threshold"] == 0.6
+
+
 def test_invalid_provider_answer_is_closed(tmp_path, monkeypatch):
     monkeypatch.setenv("REALTIME_ENABLED", "1")
     monkeypatch.setenv("OPENAI_API_KEY", "test")

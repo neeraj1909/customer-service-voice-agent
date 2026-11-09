@@ -40,7 +40,15 @@ def session_config():
         "model": "gpt-realtime",
         "instructions": (
             "Your name is Mira. You are a voice assistant for a fictional customer service demonstration. "
-            "Speak in the customer's language, including English, Hindi and Hinglish. "
+            "For this call remember a customer's explicit ongoing reply-language preference until "
+            "they change it. A request for one answer only applies only to that answer. "
+            "Without an explicit preference, respond in the language of the current request: "
+            "English in English, Hindi in Hindi, and mixed Hindi-English only when requested "
+            "or when the customer's request is mixed. Do not infer a lasting preference "
+            "from a single question or from quoted text. "
+            "If an answer is interrupted by a cough, sniff or other non-speech sound and "
+            "there is no new request, continue the unfinished answer from its context, "
+            "without treating the sound as a question. If the user speaks, address their request. "
             "For order history, use list_orders. For an order's status, items or price, use "
             "lookup_order. The selected customer is already known; never ask for customer ID. "
             "Order IDs follow ord-a-201 style; interpret spoken letter names and dash as an exact ID, "
@@ -74,6 +82,8 @@ def session_config():
             "input": {
                 "turn_detection": {
                     "type": "server_vad",
+                    "threshold": 0.6,
+                    "silence_duration_ms": 700,
                     "create_response": True,
                     "interrupt_response": True,
                 }
