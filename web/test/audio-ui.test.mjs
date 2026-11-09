@@ -4,7 +4,8 @@ import assert from 'node:assert/strict';
 function dom() {
   const elements = new Map();
   function element(id) {
-    if (!elements.has(id)) elements.set(id, {id, value:'', textContent:'', disabled:false, files:[], children:[], src:'',
+    if (!elements.has(id)) elements.set(id, {id, value:'', textContent:'', disabled:false, files:[], children:[], src:'', attributes:{},
+      setAttribute(name,value){this.attributes[name]=value;}, getAttribute(name){return this.attributes[name] ?? null;},
       appendChild(node){this.children.push(node);}, replaceChildren(){this.children=[];}, focus(){}, pause(){this.paused=true;}, load(){},
       removeAttribute(name){if (name==='src') this.src='';}});
     return elements.get(id);
@@ -168,3 +169,34 @@ test('a failed voice connection lets the user start a new call', async () => {
   }
 });
 
+test('the microphone control mutes and unmutes a live call', async () => {
+  const {element, document} = dom(); globalThis.document = document;
+  const oldNavigator = Object.getOwnPropertyDescriptor(globalThis, 'navigator'), oldPeer = globalThis.RTCPeerConnection;
+  const track = {enabled:true, stop(){}};
+  Object.defineProperty(globalThis, 'navigator', {configurable:true, value:{mediaDevices:{getUserMedia:async()=>({getTracks:()=>[track], getAudioTracks:()=>[track]})}}});
+  globalThis.RTCPeerConnection = class {
+    createDataChannel() { return {readyState:'open', close(){}}; }
+    addTrack() {}
+    async createOffer() { return {sdp:'offer'}; }
+    async setLocalDescription(d) { this.localDescription=d; }
+    async setRemoteDescription() {}
+    close() {}
+  };
+  globalThis.fetch = async path => path === '/api/sessions' ? {ok:true,json:async()=>({session_id:'s',customer_id:'cust-a'})} :
+    path === '/api/realtime/call' ? {ok:true,headers:{get:()=> 'call-id'},text:async()=> 'answer'} : {ok:true};
+  try {
+    element('customer').value='cust-a'; element('conversation-language').value='en';
+    await import('../app.js?live-voice-mute');
+    await element('start').onclick(); await element('voice-start').onclick();
+    element('voice-mute').onclick();
+    assert.equal(track.enabled, false);
+    assert.equal(element('voice-mute').textContent, 'Unmute microphone');
+    element('voice-mute').onclick();
+    assert.equal(track.enabled, true);
+    await element('voice-stop').onclick();
+    assert.equal(element('voice-mute').disabled, true);
+  } finally {
+    if (oldNavigator) Object.defineProperty(globalThis, 'navigator', oldNavigator); else delete globalThis.navigator;
+    if (oldPeer) globalThis.RTCPeerConnection = oldPeer; else delete globalThis.RTCPeerConnection;
+  }
+});

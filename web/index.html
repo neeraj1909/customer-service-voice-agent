@@ -605,7 +605,8 @@ a {
 <section class="call-card" aria-labelledby="voice-title">
 <div class="call-top"><span class="eyebrow">Your voice assistant</span><span class="call-label">Mira</span></div>
 <div class="call-center"><div class="orb" aria-hidden="true"><svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round"><rect x="18" y="7" width="12" height="23" rx="6"/><path d="M12 23v1a12 12 0 0 0 24 0v-1M24 36v6M18 42h12"/></svg></div><div class="call-copy"><h2 id="voice-title">How can I help?</h2><p>Start a conversation to check an order or find available appointment slots.</p></div></div>
-<div class="call-actions"><button class="button button-primary" id="voice-start" type="button">Start voice call</button><button class="button button-light" id="voice-stop" type="button" disabled>End call</button></div>
+<label class="field">Voice reply language<select id="voice-language"><option value="auto">Match my question</option><option value="en">English</option><option value="hi">Hindi</option><option value="hinglish">Hinglish</option></select></label>
+<div class="call-actions"><button class="button button-primary" id="voice-start" type="button">Start voice call</button><button class="button button-light" id="voice-mute" type="button" disabled aria-pressed="false">Mute microphone</button><button class="button button-light" id="voice-stop" type="button" disabled>End call</button></div>
 <p class="call-status" id="voice-status" role="status" aria-live="polite">Voice is not connected.</p><audio id="voice-playback" aria-label="Voice call audio" autoplay controls></audio>
 <p class="call-foot">Microphone audio is sent to OpenAI and may incur API charges. No human agent is connected.</p>
 </section>

@@ -10,19 +10,24 @@ function setBusy(change) { activeRequests += change; $('customer').disabled = ac
 let voice = null, voiceBusy = false;
 const voiceStatus = message => { $('voice-status').textContent = message; };
 function releaseVoiceBusy() { if (voiceBusy) { voiceBusy = false; setBusy(-1); } }
+function resetVoiceControls() { $('voice-mute').disabled = true; $('voice-mute').textContent = 'Mute microphone'; $('voice-mute').setAttribute('aria-pressed', 'false'); $('voice-language').disabled = false; }
 $('voice-start').onclick = async () => {
   if (!session) { voiceStatus('Start a fictional customer session first.'); return; }
   if (voiceBusy || voice?.callId) return;
   voiceBusy = true; setBusy(1);
-  $('voice-start').disabled = true; $('voice-stop').disabled = false;
-  voice = new RealtimeVoice({session, request:call, audio:$('voice-playback'), status:voiceStatus,
-    ended: closed => { if (closed) { releaseVoiceBusy(); $('voice-stop').disabled = true; $('voice-start').disabled = false; } else $('voice-stop').disabled = false; }});
-  try { await voice.start(); }
-  catch (error) { voiceStatus(`Voice could not start: ${error.message}`); if (!voice.callId) { releaseVoiceBusy(); $('voice-stop').disabled = true; $('voice-start').disabled = false; } }
+  $('voice-start').disabled = true; $('voice-stop').disabled = false; $('voice-language').disabled = true;
+  voice = new RealtimeVoice({session, request:call, audio:$('voice-playback'), language:$('voice-language').value, status:voiceStatus,
+    ended: closed => { if (closed) { releaseVoiceBusy(); resetVoiceControls(); $('voice-stop').disabled = true; $('voice-start').disabled = false; } else $('voice-stop').disabled = false; }});
+  try { if (await voice.start()) $('voice-mute').disabled = false; }
+  catch (error) { voiceStatus(`Voice could not start: ${error.message}`); if (!voice.callId) { releaseVoiceBusy(); resetVoiceControls(); $('voice-stop').disabled = true; $('voice-start').disabled = false; } }
+};
+$('voice-mute').onclick = () => {
+  const muted = $('voice-mute').getAttribute('aria-pressed') !== 'true';
+  if (voice?.setMicrophoneMuted(muted)) { $('voice-mute').setAttribute('aria-pressed', String(muted)); $('voice-mute').textContent = muted ? 'Unmute microphone' : 'Mute microphone'; }
 };
 $('voice-stop').onclick = async () => {
   $('voice-stop').disabled = true;
-  try { await voice?.stop(); voiceStatus('Voice call ended.'); releaseVoiceBusy(); $('voice-start').disabled = false; }
+  try { await voice?.stop(); voiceStatus('Voice call ended.'); releaseVoiceBusy(); resetVoiceControls(); $('voice-start').disabled = false; }
   catch (error) { voiceStatus(error.message); $('voice-stop').disabled = false; }
 };
 globalThis.addEventListener?.('pagehide', () => { if (voice) void voice.stop().catch(() => {}); });

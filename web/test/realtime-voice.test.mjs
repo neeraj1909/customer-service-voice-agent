@@ -122,6 +122,26 @@ test('requests browser echo cancellation and noise suppression', async () => {
   await f.voice.stop();
 });
 
+test('microphone mute changes the outbound track and restores it', async () => {
+  const f = fixture(); await f.voice.start();
+  assert.equal(f.voice.setMicrophoneMuted(true), true);
+  assert.equal(f.track.enabled, false);
+  f.voice.setMicrophoneMuted(false);
+  assert.equal(f.track.enabled, true);
+  await f.voice.stop();
+});
+
+test('selected language is sent only from the fixed allowlist', async () => {
+  const f = fixture(); f.voice.language = 'en'; await f.voice.start();
+  f.voice.channel.onopen();
+  assert.match(f.sent[0].item.content[0].text, /reply in English/);
+  await f.voice.stop();
+  const invalid = fixture(); invalid.voice.language = 'unexpected'; await invalid.voice.start();
+  invalid.voice.channel.onopen();
+  assert.equal(invalid.sent.length, 0);
+  await invalid.voice.stop();
+});
+
 test('permits only well-formed read tools once per call ID', async () => {
   const f = fixture(); await f.voice.start();
   const event = {type:'response.function_call_arguments.done', name:'lookup_order', call_id:'c1', arguments:'{"order_id":"ord-a-201"}'};

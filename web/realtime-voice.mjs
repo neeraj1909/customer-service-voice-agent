@@ -16,10 +16,10 @@ function normalizeOrderId(value) {
 // Browser-side WebRTC voice transport. The server supplies the SDP answer;
 // provider credentials remain on the server. Only read-only tools are exposed.
 export class RealtimeVoice {
-  constructor({session, request, audio, status = () => {}, event = () => {}, ended = () => {},
+  constructor({session, request, audio, language = 'auto', status = () => {}, event = () => {}, ended = () => {},
     media = globalThis.navigator?.mediaDevices, Peer = globalThis.RTCPeerConnection,
     fetchImpl = globalThis.fetch?.bind(globalThis)} = {}) {
-    Object.assign(this, {session, request, audio, status, event, ended, media, Peer, fetchImpl});
+    Object.assign(this, {session, request, audio, language, status, event, ended, media, Peer, fetchImpl});
     this.generation = 0;
     this.callId = null;
     this.pendingStart = null;
@@ -52,6 +52,11 @@ export class RealtimeVoice {
       this.peer = peer;
       const channel = peer.createDataChannel('oai-events');
       this.channel = channel;
+      channel.onopen = () => {
+        if (generation !== this.generation) return;
+        const names = {en:'English', hi:'Hindi', hinglish:'Hinglish'};
+        if (Object.hasOwn(names, this.language)) channel.send(JSON.stringify({type:'conversation.item.create', item:{type:'message', role:'user', content:[{type:'input_text', text:`For this call, please reply in ${names[this.language]}.`}]}}));
+      };
       channel.onmessage = ({data}) => {
         if (generation !== this.generation) return;
         try { void this.receive(JSON.parse(data), generation).catch(() => this.status('Voice tool response failed.')); } catch { /* discard malformed provider events */ }
@@ -164,6 +169,12 @@ export class RealtimeVoice {
     this.audio.srcObject = null;
     this.audio.muted = false;
     this.seenCalls.clear();
+  }
+
+  setMicrophoneMuted(muted) {
+    if (!this.stream) return false;
+    this.stream.getAudioTracks().forEach(track => { track.enabled = !muted; });
+    return true;
   }
 
   async endServerCall() {
