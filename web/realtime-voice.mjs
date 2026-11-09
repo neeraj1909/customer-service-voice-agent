@@ -1,3 +1,18 @@
+const SPOKEN_DIGITS = {zero: '0', one: '1', two: '2', three: '3', four: '4', five: '5', six: '6', seven: '7', eight: '8', nine: '9'};
+
+function normalizeOrderId(value) {
+  const words = value.trim().toLowerCase().replace(/\bdash\b/g, '-');
+  const compact = /^ord[\s-]*([ab])[\s-]*(\d{1,3})$/.exec(words);
+  if (compact) return `ord-${compact[1]}-${compact[2]}`;
+  const tokens = words.match(/[a-z]+|\d+|-/g);
+  if (!tokens || words.replace(/[a-z\d\s-]/g, '')) return words;
+  const parts = tokens.filter(token => token !== '-');
+  if (parts[0] === 'o' && parts[1] === 'r' && parts[2] === 'd') parts.splice(0, 3, 'ord');
+  if (parts[0] !== 'ord' || !/^[ab]$/.test(parts[1] ?? '') || parts.length < 3) return words;
+  const digits = parts.slice(2).map(part => SPOKEN_DIGITS[part] ?? (/^\d+$/.test(part) ? part : '?')).join('');
+  return /^\d{1,3}$/.test(digits) ? `ord-${parts[1]}-${digits}` : words;
+}
+
 // Browser-side WebRTC voice transport. The server supplies the SDP answer;
 // provider credentials remain on the server. Only read-only tools are exposed.
 export class RealtimeVoice {
@@ -122,8 +137,7 @@ export class RealtimeVoice {
         if (!field || Object.keys(args).length !== 1 || typeof args[field] !== 'string') throw new Error('invalid_tool');
         let id = args[field].trim().toLowerCase();
         if (field === 'order_id') {
-          const match = /^ord[\s-]*([ab])[\s-]*(\d{1,3})$/.exec(id);
-          if (match) id = `ord-${match[1]}-${match[2]}`;
+          id = normalizeOrderId(id);
         }
         if (!/^[a-z0-9-]{1,80}$/.test(id)) throw new Error('invalid_tool');
         output = await this.request(field === 'order_id' ? '/api/order-details' : '/api/appointments/slots', {[field]: id});

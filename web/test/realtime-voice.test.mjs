@@ -118,7 +118,12 @@ test('normalizes a clearly spoken order identifier without changing its customer
   const f = fixture(); await f.voice.start();
   await f.voice.receive({type:'response.function_call_arguments.done', name:'lookup_order', call_id:'spelled', arguments:'{"order_id":"ORD A 201"}'});
   assert.deepEqual(f.requests, [{path:'/api/order-details', body:{order_id:'ord-a-201'}}]);
+  await f.voice.receive({type:'response.function_call_arguments.done', name:'lookup_order', call_id:'words', arguments:'{"order_id":"O R D dash A dash two zero one"}'});
+  assert.deepEqual(f.requests[1], {path:'/api/order-details', body:{order_id:'ord-a-201'}});
+  await f.voice.receive({type:'response.function_call_arguments.done', name:'lookup_order', call_id:'foreign', arguments:'{"order_id":"ORD B two zero one"}'});
+  assert.deepEqual(f.requests[2], {path:'/api/order-details', body:{order_id:'ord-b-201'}});
   await f.voice.receive({type:'response.function_call_arguments.done', name:'lookup_order', call_id:'unclear', arguments:'{"order_id":"order a two zero one"}'});
-  assert.equal(f.requests.length, 1);
+  assert.equal(f.requests.length, 3);
   await f.voice.stop();
 });
+
