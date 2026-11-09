@@ -1,5 +1,11 @@
 # Evidence: controlled text evaluation
 
+## WebRTC playback muting (2026-11-09)
+
+The previous client muted its entire audio element on each `input_audio_buffer.speech_started`, and only unmuted on a later output-start event under particular ordering. If output started while speech was still marked active, the element could remain muted even after speech stopped. That is a plausible explanation for a silent response; the user's particular call has not been traced. The client now leaves WebRTC playback to the provider's output buffer and requests browser echo cancellation and noise suppression. [OpenAI's Realtime documentation](https://developers.openai.com/api/docs/guides/realtime-conversations) says WebRTC manages interruption and truncates unplayed audio. Device support for audio processing and real interruption behavior still need a live check.
+
+The JavaScript suite passed 30 tests, including an overlapping-event regression; the Python suite passed 41, and Ruff passed. The browser E2E also checks that the actual audio element does not remain muted across simulated overlapping events. These do not prove that sound reaches the user's speakers or that background audio never triggers provider VAD.
+
 ## Spoken-form order tool and call status (2026-11-09)
 
 The browser voice adapter accepts an unambiguous English digit-by-digit order ID such as `O R D dash A dash two zero one`, without replacing the customer letter. The scoped API still decides whether the selected customer owns the order. Voice status reports speech detection, processing, tool checks and provider errors without showing provider error details.
