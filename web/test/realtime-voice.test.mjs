@@ -200,7 +200,6 @@ test('reports speech, lookup and provider errors without displaying provider det
   await f.voice.stop();
 });
 
-
 test('checks a transcript and deletes the original before responding with the approved request', async () => {
   const f = fixture(); await f.voice.start();
   f.voice.request = async (path, body) => {
@@ -253,6 +252,18 @@ test('redirects in the detected language without passing the unrelated question 
   await pending;
   assert.match(f.sent[1].item.content[0].text, /Hindi/);
   assert.doesNotMatch(JSON.stringify(f.sent), /राजधानी/);
+  assert.equal(f.sent[2].type, 'response.create');
+  await f.voice.stop();
+});
+
+test('an empty transcription can resume an interrupted answer without a model check', async () => {
+  const f = fixture(); await f.voice.start();
+  f.voice.request = async () => { throw Error('unexpected'); };
+  const pending = f.voice.receive({type:'conversation.item.input_audio_transcription.completed', item_id:'noise', transcript:''});
+  await new Promise(resolve => setImmediate(resolve));
+  await f.voice.receive({type:'conversation.item.deleted', item_id:'noise'});
+  await pending;
+  assert.match(f.sent[1].item.content[0].text, /continue/);
   assert.equal(f.sent[2].type, 'response.create');
   await f.voice.stop();
 });
