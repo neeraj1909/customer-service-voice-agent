@@ -117,9 +117,28 @@ with sqlite3.connect(sys.argv[1]) as c:
     }
     await runCustomer('cust-a', 'ord-a-203', 'delivered', 'ord-b-201');
     await runCustomer('cust-b', 'ord-b-201', 'processing', 'ord-a-203');
+    const voiceTool = await evaluate(`(async () => {
+      const {RealtimeVoice} = await import('/realtime-voice.mjs');
+      const session = await (await fetch('/api/sessions', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({customer_id:'cust-a'})})).json();
+      const sent = [];
+      const request = async (path, body) => {
+        const response = await fetch(path, {method:'POST', headers:{'Content-Type':'application/json', 'X-Session':session.session_id}, body:JSON.stringify(body)});
+        if (!response.ok) throw Error('request failed');
+        return response.json();
+      };
+      const voice = new RealtimeVoice({session:session.session_id, request, audio:{}});
+      voice.channel = {readyState:'open', send:message => sent.push(JSON.parse(message))};
+      for (const [call_id, order_id] of [['own', 'O R D dash A dash two zero one'], ['foreign', 'O R D dash B dash two zero one']]) {
+        await voice.receive({type:'response.function_call_arguments.done', name:'lookup_order', call_id, arguments:JSON.stringify({order_id})});
+      }
+      return sent.filter(message => message.item).map(message => JSON.parse(message.item.output));
+    })()`);
+    if (voiceTool[0]?.id !== 'ord-a-201' || !voiceTool[0]?.items?.length || !voiceTool[1]?.error) {
+      throw new Error(`voice tool scoped lookup mismatch: ${JSON.stringify(voiceTool)}`);
+    }
     const after = inspectDatabase();
     if (JSON.stringify(after) !== JSON.stringify(before)) throw new Error('order reads changed persisted state');
-    console.log('ORDERS_E2E_PASS: 50 seeded records; both owners see new orders; foreign and unknown return identical 404; SQLite unchanged');
+    console.log('ORDERS_E2E_PASS: 50 seeded records; owner and foreign lookups; spoken-form voice tool through browser and HTTP; SQLite unchanged');
     ws.close();
   } catch (error) {
     console.error('ORDERS_E2E_FAIL', error.stack);
