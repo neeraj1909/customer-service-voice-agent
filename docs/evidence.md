@@ -1,5 +1,11 @@
 # Evidence: controlled text evaluation
 
+## Voice call limit recovery (2026-11-09)
+
+The running demo returned HTTP 429 with `Realtime call limit reached`: its local limit is two tracked or pending calls. The individual calls' ages and provider state were not inspected, so the reason those slots were occupied is unknown. The previous expiry task stopped retrying after three failed hangups, leaving an unconfirmed call counted indefinitely. It now continues retrying every 30 seconds until the provider confirms hangup, preserving the limit while cleanup is uncertain. The browser explains the local limit. Persistent provider errors can still keep a slot occupied and need investigation; retries do not prove that a provider call has ended.
+
+The local app was gracefully restarted with its existing SQLite database; in-memory sessions were reset. On the restarted server, isolated Chrome created a real provider WebRTC session (HTTP 200), accepted the SDP answer, and closed it (HTTP 204). A second call returned the same results after its browser peer was closed first. Neither check used a microphone or established audible playback. The provider's documented endpoint is [Hang up call](https://developers.openai.com/api/reference/resources/realtime/subresources/calls/methods/hangup).
+
 ## WebRTC playback muting (2026-11-09)
 
 The previous client muted its entire audio element on each `input_audio_buffer.speech_started`, and only unmuted on a later output-start event under particular ordering. If output started while speech was still marked active, the element could remain muted even after speech stopped. That is a plausible explanation for a silent response; the user's particular call has not been traced. The client now leaves WebRTC playback to the provider's output buffer and requests browser echo cancellation and noise suppression. [OpenAI's Realtime documentation](https://developers.openai.com/api/docs/guides/realtime-conversations) says WebRTC manages interruption and truncates unplayed audio. After refreshing the updated client, the user reported that voice playback was working. Device support for audio processing and real interruption behavior still need a separate live check.
