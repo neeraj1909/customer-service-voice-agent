@@ -103,3 +103,34 @@ test('recognition language change clears previously copied transcript', async ()
   assert.equal(element('audio-transcript').value,'');
   assert.equal(element('conversation-input').value,'');
 });
+
+test('customer session cannot be changed from the UI while live voice is active', async () => {
+  const {element, document} = dom();
+  globalThis.document = document;
+  const oldNavigator = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
+  const oldPeer = globalThis.RTCPeerConnection;
+  Object.defineProperty(globalThis, 'navigator', {configurable:true, value:{mediaDevices:{getUserMedia:async()=>({getTracks:()=>[], getAudioTracks:()=>[]})}}});
+  globalThis.RTCPeerConnection = class {
+    createDataChannel() { return {readyState:'open', close(){}}; }
+    async createOffer() { return {sdp:'offer'}; }
+    async setLocalDescription(d) { this.localDescription=d; }
+    async setRemoteDescription() {}
+    close() {}
+  };
+  globalThis.fetch = async path => path === '/api/sessions' ? {ok:true,json:async()=>({session_id:'s',customer_id:'cust-a'})} :
+    path === '/api/realtime/call' ? {ok:true,headers:{get:()=> 'call-id'},text:async()=> 'answer'} : {ok:true};
+  try {
+    element('customer').value='cust-a'; element('conversation-language').value='en';
+    await import('../app.js?live-voice-session');
+    await element('start').onclick();
+    await element('voice-start').onclick();
+    assert.equal(element('start').disabled, true);
+    assert.equal(element('customer').disabled, true);
+    await element('voice-stop').onclick();
+    assert.equal(element('start').disabled, false);
+    assert.equal(element('customer').disabled, false);
+  } finally {
+    if (oldNavigator) Object.defineProperty(globalThis, 'navigator', oldNavigator); else delete globalThis.navigator;
+    if (oldPeer) globalThis.RTCPeerConnection = oldPeer; else delete globalThis.RTCPeerConnection;
+  }
+});
