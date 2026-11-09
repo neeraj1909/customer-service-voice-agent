@@ -151,7 +151,7 @@ test('reports why a response stopped when provider gives a known reason', async 
 });
 
 test('permits only well-formed read tools once per call ID', async () => {
-  const f = fixture(); await f.voice.start();
+  const f = fixture(); await f.voice.start(); f.voice.approvedTurn = f.voice.turn;
   const event = {type:'response.function_call_arguments.done', name:'lookup_order', call_id:'c1', arguments:'{"order_id":"ord-a-201"}'};
   await f.voice.receive(event); await f.voice.receive(event);
   assert.deepEqual(f.requests, [{path:'/api/order-details', body:{order_id:'ord-a-201'}}]);
@@ -164,7 +164,7 @@ test('permits only well-formed read tools once per call ID', async () => {
 
 
 test('order history is scoped to the existing session and accepts no customer argument', async () => {
-  const f = fixture(); await f.voice.start();
+  const f = fixture(); await f.voice.start(); f.voice.approvedTurn = f.voice.turn;
   await f.voice.receive({type:'response.function_call_arguments.done', name:'list_orders', call_id:'history', arguments:'{}'});
   assert.deepEqual(f.requests, [{path:'/api/orders', body:{}}]);
   await f.voice.receive({type:'response.function_call_arguments.done', name:'list_orders', call_id:'bad', arguments:'{"customer":"cust-b"}'});
@@ -175,7 +175,7 @@ test('order history is scoped to the existing session and accepts no customer ar
 
 
 test('normalizes a clearly spoken order identifier without changing its customer', async () => {
-  const f = fixture(); await f.voice.start();
+  const f = fixture(); await f.voice.start(); f.voice.approvedTurn = f.voice.turn;
   await f.voice.receive({type:'response.function_call_arguments.done', name:'lookup_order', call_id:'spelled', arguments:'{"order_id":"ORD A 201"}'});
   assert.deepEqual(f.requests, [{path:'/api/order-details', body:{order_id:'ord-a-201'}}]);
   await f.voice.receive({type:'response.function_call_arguments.done', name:'lookup_order', call_id:'words', arguments:'{"order_id":"O R D dash A dash two zero one"}'});
@@ -190,11 +190,13 @@ test('normalizes a clearly spoken order identifier without changing its customer
 test('reports speech, lookup and provider errors without displaying provider details', async () => {
   const f = fixture(), statuses = [];
   f.voice.status = message => statuses.push(message);
-  await f.voice.start();
+  await f.voice.start(); f.voice.approvedTurn = f.voice.turn;
   await f.voice.receive({type:'input_audio_buffer.speech_started'});
   await f.voice.receive({type:'input_audio_buffer.speech_stopped'});
+  f.voice.approvedTurn = f.voice.turn;
   await f.voice.receive({type:'response.function_call_arguments.done', name:'list_orders', call_id:'status', arguments:'{}'});
   await f.voice.receive({type:'error', error:{message:'private provider detail'}});
   assert.deepEqual(statuses.slice(-5), ['Listening.', 'Processing your request.', 'Checking your request.', 'Preparing a response.', 'The voice service reported an error. Try again or restart the call.']);
   await f.voice.stop();
 });
+

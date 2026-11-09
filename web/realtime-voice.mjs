@@ -28,6 +28,12 @@ export class RealtimeVoice {
     this.channel = null;
     this.seenCalls = new Set();
     this.stopPromise = null;
+    this.turn = 0;
+    this.approvedTurn = null;
+    this.itemTurns = new Map();
+    this.uncheckedItems = new Set();
+    this.lastApproved = '';
+    this.deletions = new Map();
   }
 
   start() {
@@ -123,6 +129,11 @@ export class RealtimeVoice {
   async receive(data, generation = this.generation) {
     if (!data || typeof data.type !== 'string') return;
     if (data.type === 'input_audio_buffer.speech_started') {
+      this.turn++;
+      if (typeof data.item_id === 'string') {
+        this.itemTurns.set(data.item_id, this.turn);
+        this.uncheckedItems.add(data.item_id);
+      }
       this.status('Listening.');
     } else if (data.type === 'input_audio_buffer.speech_stopped') {
       this.status('Processing your request.');
@@ -133,7 +144,21 @@ export class RealtimeVoice {
       this.status('Mira is responding.');
     }
     this.event(data);
+    if (data.type === 'conversation.item.deleted') {
+      this.deletions.get(data.item_id)?.(true);
+      return;
+    }
+    if (data.type === 'conversation.item.input_audio_transcription.failed') {
+      this.status('Could not understand that turn. Please try again.');
+      await this.checkTurn({item_id:data.item_id, transcript:'', failed:true}, generation);
+      return;
+    }
+    if (data.type === 'conversation.item.input_audio_transcription.completed') {
+      await this.checkTurn(data, generation);
+      return;
+    }
     if (data.type !== 'response.function_call_arguments.done') return;
+    if (this.approvedTurn !== this.turn) return;
     const {name, call_id: callId} = data;
     if (typeof callId !== 'string' || !callId || this.seenCalls.has(callId)) return;
     this.seenCalls.add(callId);
@@ -155,9 +180,59 @@ export class RealtimeVoice {
         output = await this.request(field === 'order_id' ? '/api/order-details' : '/api/appointments/slots', {[field]: id});
       }
     } catch { output = {error: 'Tool request failed or was not permitted. No change was made.'}; }
-    if (generation !== this.generation || this.channel?.readyState !== 'open') return;
+    if (generation !== this.generation || this.approvedTurn !== this.turn || this.channel?.readyState !== 'open') return;
     this.channel.send(JSON.stringify({type: 'conversation.item.create', item: {type: 'function_call_output', call_id: callId, output: JSON.stringify(output)}}));
     this.channel.send(JSON.stringify({type: 'response.create'}));
+    this.status('Preparing a response.');
+  }
+
+  async checkTurn({item_id: itemId, transcript, failed = false}, generation) {
+    if (typeof itemId !== 'string' || !itemId || typeof transcript !== 'string') return;
+    this.uncheckedItems.add(itemId);
+    const turn = this.itemTurns.get(itemId) ?? this.turn;
+    this.itemTurns.delete(itemId);
+    let result;
+    try {
+      if (failed) throw new Error('transcription failed');
+      this.status('Checking your request.');
+      result = transcript.trim() ? await this.request('/api/realtime/scope', {transcript, context:this.lastApproved}) : {decision:'noise'};
+    } catch { /* remove the original turn and fail closed */ }
+    if (generation !== this.generation || this.channel?.readyState !== 'open') return;
+    const deleted = new Promise(resolve => {
+      const timer = setTimeout(() => { this.deletions.delete(itemId); resolve(false); }, 5000);
+      this.deletions.set(itemId, value => { clearTimeout(timer); this.deletions.delete(itemId); resolve(value); });
+    });
+    this.channel.send(JSON.stringify({type:'conversation.item.delete', item_id:itemId}));
+    const removed = await deleted;
+    if (generation !== this.generation || this.channel?.readyState !== 'open') return;
+    if (!removed) {
+      this.status('Could not safely process the turn. Closing the call.');
+      try { await this.stop(); this.ended(true); } catch { this.ended(false); }
+      return;
+    }
+    this.uncheckedItems.delete(itemId);
+    if (turn !== this.turn) return;
+    if (this.uncheckedItems.size) {
+      this.status('Overlapping speech could not be checked safely. Please repeat your request.');
+      return;
+    }
+    if (!result || !['allow', 'redirect', 'clarify', 'noise'].includes(result.decision) ||
+        (result.decision === 'allow' && (typeof result.safe_text !== 'string' || !result.safe_text.trim()))) {
+      this.status('The request could not be checked. Please try again.');
+      return;
+    }
+    const messages = {
+      redirect:'Please briefly explain that you can only help with this customer service demo, and ask how you can help with an order or appointment.',
+      clarify:'Please ask me to clarify my customer service question.',
+      noise:'Please continue your interrupted customer service answer if there was one.',
+    };
+    const languages = {en:'English', hi:'Hindi', hinglish:'Hinglish'};
+    const languageHint = Object.hasOwn(languages, result.language) ? ` The last utterance was in ${languages[result.language]}; respect any ongoing language preference, otherwise respond in that language.` : '';
+    const text = result.decision === 'allow' ? result.safe_text : messages[result.decision] + languageHint;
+    if (result.decision === 'allow') this.lastApproved = text;
+    this.approvedTurn = turn;
+    this.channel.send(JSON.stringify({type:'conversation.item.create', item:{type:'message', role:'user', content:[{type:'input_text', text}]}}));
+    this.channel.send(JSON.stringify({type:'response.create'}));
     this.status('Preparing a response.');
   }
 
@@ -171,6 +246,11 @@ export class RealtimeVoice {
     this.audio.srcObject = null;
     this.audio.muted = false;
     this.seenCalls.clear();
+    for (const resolve of this.deletions.values()) resolve(false);
+    this.lastApproved = '';
+    this.approvedTurn = null;
+    this.itemTurns.clear();
+    this.uncheckedItems.clear();
   }
 
   setMicrophoneMuted(muted) {

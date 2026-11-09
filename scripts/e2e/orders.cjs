@@ -128,6 +128,8 @@ with sqlite3.connect(sys.argv[1]) as c:
       };
       const voice = new RealtimeVoice({session:session.session_id, request, audio:{}});
       voice.channel = {readyState:'open', send:message => sent.push(JSON.parse(message))};
+      // This controlled tool-only probe starts after a simulated approved turn.
+      voice.approvedTurn = voice.turn;
       for (const [call_id, order_id] of [['own', 'O R D dash A dash two zero one'], ['foreign', 'O R D dash B dash two zero one']]) {
         await voice.receive({type:'response.function_call_arguments.done', name:'lookup_order', call_id, arguments:JSON.stringify({order_id})});
       }

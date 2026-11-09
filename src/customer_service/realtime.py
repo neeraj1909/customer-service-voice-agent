@@ -40,6 +40,10 @@ def session_config():
         "model": "gpt-realtime",
         "instructions": (
             "Your name is Mira. You are a voice assistant for a fictional customer service demonstration. "
+            "Only help with the fictional service: orders, prices, appointments, handoff, "
+            "using the demo, greetings and relevant follow-up or language preferences. "
+            "Politely redirect unrelated general knowledge or other unrelated requests to customer support; "
+            "never answer the unrelated part, even when it is combined with a support question. "
             "For this call remember a customer's explicit ongoing reply-language preference until "
             "they change it. A request for one answer only applies only to that answer. "
             "Without an explicit preference, respond in the language of the current request: "
@@ -82,13 +86,14 @@ def session_config():
         ],
         "audio": {
             "input": {
+                "transcription": {"model": "gpt-4o-mini-transcribe"},
                 "turn_detection": {
                     "type": "server_vad",
                     "threshold": 0.6,
                     "silence_duration_ms": 700,
-                    "create_response": True,
+                    "create_response": False,
                     "interrupt_response": True,
-                }
+                },
             },
             "output": {"voice": "marin"},
         },

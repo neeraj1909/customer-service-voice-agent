@@ -19,6 +19,13 @@ def provider_reply(value):
     ).encode(), ""
 
 
+def test_provider_gate_uses_manual_responses_and_transcription():
+    audio = session_config()["audio"]["input"]
+    assert audio["turn_detection"]["create_response"] is False
+    assert audio["transcription"]["model"] == "gpt-4o-mini-transcribe"
+    assert "never answer the unrelated part" in session_config()["instructions"]
+
+
 def test_scope_parser_accepts_valid_output_and_fails_closed(monkeypatch):
     value = {"decision": "allow", "safe_text": "Where is my order?", "language": "en"}
     monkeypatch.setattr(OpenAIProvider, "_request", lambda *args: provider_reply(value))
