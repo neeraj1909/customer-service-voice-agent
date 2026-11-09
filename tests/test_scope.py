@@ -29,3 +29,20 @@ def test_scope_parser_accepts_valid_output_and_fails_closed(monkeypatch):
     value.update(decision="redirect", safe_text="some unsolicited text")
     assert classify_scope("key", "Capital?", "")["safe_text"] == ""
 
+
+def test_scope_endpoint_requires_session_and_fails_closed(tmp_path, monkeypatch):
+    monkeypatch.setenv("REALTIME_ENABLED", "1")
+    monkeypatch.setenv("OPENAI_API_KEY", "test")
+
+    def unavailable(*args):
+        raise TimeoutError()
+
+    monkeypatch.setattr("customer_service.app.classify_scope", unavailable)
+    with TestClient(create_app(tmp_path / "test.db")) as client:
+        assert client.post("/api/realtime/scope", json={"transcript": "hello"}).status_code == 401
+        session = client.post("/api/sessions", json={"customer_id": "cust-a"}).json()["session_id"]
+        response = client.post(
+            "/api/realtime/scope", headers={"X-Session": session}, json={"transcript": "hello"}
+        )
+        assert response.status_code == 503
+        assert "TimeoutError" not in response.text

@@ -1,5 +1,6 @@
 """Loopback API for a controlled fictional service journey."""
 
+import asyncio
 import os
 import secrets
 import sqlite3
@@ -19,10 +20,12 @@ from .domain import (
     OrderRequest,
     ProposalRequest,
     RejectionRequest,
+    ScopeRequest,
     SessionRequest,
     SynthesisRequest,
 )
 from .realtime import MAX_SDP_BYTES, VoiceCalls
+from .scope import classify_scope
 from .tools import Store, ToolError
 
 WEB = Path(__file__).resolve().parents[2] / "web"
@@ -144,6 +147,17 @@ def create_app(db_path: Path | None = None, clock=time, realtime_provider=None):
     async def end_realtime_call(call_id: str, context=current_session):
         await voice_calls.end(call_id, context[0])
         return Response(status_code=204)
+
+    @app.post("/api/realtime/scope")
+    async def realtime_scope(body: ScopeRequest, _context=current_session):
+        if os.getenv("REALTIME_ENABLED") != "1" or not os.getenv("OPENAI_API_KEY"):
+            raise HTTPException(503, "Voice scope check unavailable")
+        try:
+            return await asyncio.to_thread(
+                classify_scope, os.environ["OPENAI_API_KEY"], body.transcript, body.context
+            )
+        except Exception as exc:
+            raise HTTPException(503, "Voice scope check unavailable") from exc
 
     @app.post("/api/audio/transcribe")
     async def transcribe(request: Request, _context=current_session):

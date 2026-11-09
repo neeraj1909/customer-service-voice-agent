@@ -9,6 +9,11 @@ class SessionRequest(BaseModel):
     customer_id: str
 
 
+class ScopeRequest(BaseModel):
+    transcript: str = Field(min_length=1, max_length=2000)
+    context: str = Field(default="", max_length=2000)
+
+
 class OrderRequest(BaseModel):
     order_id: str
 
