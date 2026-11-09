@@ -23,7 +23,11 @@ Selective patterns to evaluate independently:
 
 Start with a deterministic controlled text workflow against seeded fictional data. The project-owned service controls customer scope, appointment confirmation, atomic idempotent changes and honest local handoff records. Treat adapter and tool output as untrusted and do not describe scripted responses as model inference. Validate real audio separately and mark it unverified until actually exercised. Reassess these provisional decisions when the blocked headed research lane is completed or explicitly waived.
 
-No paid APIs, paid services, real customer data, public deployment or production-experience claim are authorized by the current plan. Local-only operation does not in itself prove absence of outbound connections: enforce and test the boundary in the implementation.
+The original plan excluded paid APIs. The user subsequently authorized paid services for this customer-service project, so a separate opt-in Realtime path is permitted; the default path remains local. Real customer data, public deployment and production-experience claims remain out of scope. Local-only operation does not in itself prove absence of outbound connections: enforce and test the boundary in the implementation.
+
+## Optional live voice decision
+
+The opt-in live path uses OpenAI Realtime with a server-side API key. Audio and fictional tool results leave the machine and use may be billable; a ChatGPT subscription or credits do not establish API availability. The voice tools expose only customer-scoped reads for orders and appointment slots. Appointment changes and local handoff remain separate explicit page actions. Browser-mediated provider events are not a hard policy boundary; the fictional session selector is not production authentication. Real microphone, provider behavior, acoustic interruption and multilingual speech quality must be validated separately from simulated tests. The reference implementation remains design evidence subject to the reuse decision above.
 
 ## Implementation update (2026-11-08)
 
