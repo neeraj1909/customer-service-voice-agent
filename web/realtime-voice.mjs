@@ -88,7 +88,9 @@ export class RealtimeVoice {
       const callId = response.headers.get('X-Call-ID');
       if (callId) this.callId = callId;
       if (generation !== this.generation) return false;
-      if (!response.ok) throw new Error(`Voice service unavailable (${response.status}).`);
+      if (!response.ok) throw new Error(response.status === 429 ?
+        'The demo has reached its two-call limit. End another call or wait for cleanup, then try again.' :
+        `Voice service unavailable (${response.status}).`);
       if (!callId) throw new Error('Voice service did not identify the call.');
       const answer = await response.text();
       if (generation !== this.generation) return false;

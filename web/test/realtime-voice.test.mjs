@@ -46,6 +46,13 @@ test('permissions failure leaves no active call', async () => {
   assert.equal(f.voice.peer, null);
 });
 
+test('explains the local call limit when the server rejects a new call', async () => {
+  const f = fixture();
+  f.voice.fetchImpl = async () => ({ok:false, status:429, headers:{get:() => null}});
+  await assert.rejects(f.voice.start(), /two-call limit/);
+  assert.equal(f.track.stopped, true);
+});
+
 test('ending during offer negotiation stops capture and hangs up a late call', async () => {
   const f = fixture();
   let resolveOffer;
