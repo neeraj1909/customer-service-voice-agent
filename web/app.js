@@ -15,7 +15,8 @@ $('voice-start').onclick = async () => {
   if (voiceBusy || voice?.callId) return;
   voiceBusy = true; setBusy(1);
   $('voice-start').disabled = true; $('voice-stop').disabled = false;
-  voice = new RealtimeVoice({session, request:call, audio:$('voice-playback'), status:voiceStatus});
+  voice = new RealtimeVoice({session, request:call, audio:$('voice-playback'), status:voiceStatus,
+    ended: closed => { if (closed) { releaseVoiceBusy(); $('voice-stop').disabled = true; $('voice-start').disabled = false; } else $('voice-stop').disabled = false; }});
   try { await voice.start(); }
   catch (error) { voiceStatus(`Voice could not start: ${error.message}`); if (!voice.callId) { releaseVoiceBusy(); $('voice-stop').disabled = true; $('voice-start').disabled = false; } }
 };

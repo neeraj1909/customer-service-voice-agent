@@ -134,3 +134,37 @@ test('customer session cannot be changed from the UI while live voice is active'
     if (oldPeer) globalThis.RTCPeerConnection = oldPeer; else delete globalThis.RTCPeerConnection;
   }
 });
+
+test('a failed voice connection lets the user start a new call', async () => {
+  const {element, document} = dom();
+  globalThis.document = document;
+  const oldNavigator = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
+  const oldPeer = globalThis.RTCPeerConnection;
+  let peer;
+  Object.defineProperty(globalThis, 'navigator', {configurable:true, value:{mediaDevices:{getUserMedia:async()=>({getTracks:()=>[], getAudioTracks:()=>[]})}}});
+  globalThis.RTCPeerConnection = class {
+    constructor() { peer = this; }
+    createDataChannel() { return {readyState:'open', close(){}}; }
+    async createOffer() { return {sdp:'offer'}; }
+    async setLocalDescription(d) { this.localDescription=d; }
+    async setRemoteDescription() {}
+    close() {}
+  };
+  globalThis.fetch = async path => path === '/api/sessions' ? {ok:true,json:async()=>({session_id:'s',customer_id:'cust-a'})} :
+    path === '/api/realtime/call' ? {ok:true,headers:{get:()=> 'call-id'},text:async()=> 'answer'} : {ok:true};
+  try {
+    element('customer').value='cust-a'; element('conversation-language').value='en';
+    await import('../app.js?live-voice-failure');
+    await element('start').onclick();
+    await element('voice-start').onclick();
+    peer.connectionState='failed'; peer.onconnectionstatechange();
+    for (let i=0; i<10 && element('voice-start').disabled; i++) await new Promise(resolve=>setImmediate(resolve));
+    assert.equal(element('voice-start').disabled, false);
+    assert.equal(element('voice-stop').disabled, true);
+    assert.match(element('voice-status').textContent, /Start a new call/);
+  } finally {
+    if (oldNavigator) Object.defineProperty(globalThis, 'navigator', oldNavigator); else delete globalThis.navigator;
+    if (oldPeer) globalThis.RTCPeerConnection = oldPeer; else delete globalThis.RTCPeerConnection;
+  }
+});
+

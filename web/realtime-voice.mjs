@@ -16,10 +16,10 @@ function normalizeOrderId(value) {
 // Browser-side WebRTC voice transport. The server supplies the SDP answer;
 // provider credentials remain on the server. Only read-only tools are exposed.
 export class RealtimeVoice {
-  constructor({session, request, audio, status = () => {}, event = () => {},
+  constructor({session, request, audio, status = () => {}, event = () => {}, ended = () => {},
     media = globalThis.navigator?.mediaDevices, Peer = globalThis.RTCPeerConnection,
     fetchImpl = globalThis.fetch?.bind(globalThis)} = {}) {
-    Object.assign(this, {session, request, audio, status, event, media, Peer, fetchImpl});
+    Object.assign(this, {session, request, audio, status, event, ended, media, Peer, fetchImpl});
     this.generation = 0;
     this.callId = null;
     this.pendingStart = null;
@@ -65,8 +65,17 @@ export class RealtimeVoice {
       peer.onconnectionstatechange = () => {
         if (generation !== this.generation) return;
         if (peer.connectionState === 'connected') this.status('Connected. Speak to the assistant.');
-        if (peer.connectionState === 'failed') { void this.stop().catch(() => this.status('Could not confirm the server call ended. Try End again.')); this.status('Voice connection failed.'); }
-        if (peer.connectionState === 'disconnected') this.status('Voice connection interrupted.');
+        if (peer.connectionState === 'failed') {
+          this.status('Voice connection failed. Closing the call.');
+          void this.stop().then(() => {
+            this.status('Voice connection failed. Start a new call to reconnect.');
+            this.ended(true);
+          }).catch(() => {
+            this.status('Could not confirm the server call ended. Try End again.');
+            this.ended(false);
+          });
+        }
+        if (peer.connectionState === 'disconnected') this.status('Voice connection interrupted; waiting for it to recover.');
       };
       for (const track of stream.getAudioTracks()) peer.addTrack(track, stream);
       const offer = await peer.createOffer();

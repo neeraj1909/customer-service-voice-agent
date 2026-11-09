@@ -39,6 +39,34 @@ test('connects with a scoped session and releases microphone and server call', a
   assert.equal(f.calls[1].options.headers['X-Session'], 'session-1');
 });
 
+test('a failed connection closes the call and releases the UI for retry', async () => {
+  const f = fixture(), ended = [], statuses = [];
+  f.voice.ended = closed => ended.push(closed);
+  f.voice.status = message => statuses.push(message);
+  await f.voice.start();
+  const peer = f.voice.peer;
+  peer.connectionState = 'disconnected'; peer.onconnectionstatechange();
+  assert.match(statuses.at(-1), /waiting/);
+  peer.connectionState = 'failed'; peer.onconnectionstatechange();
+  for (let i = 0; i < 10 && !ended.length; i++) await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(ended, [true]);
+  assert.equal(f.track.stopped, true);
+  assert.equal(f.calls.at(-1).url, '/api/realtime/call/call-123');
+  assert.match(statuses.at(-1), /Start a new call/);
+});
+
+test('failed cleanup keeps the End call recovery path available', async () => {
+  const f = fixture(), ended = [];
+  const fetch = f.voice.fetchImpl;
+  f.voice.fetchImpl = (url, options) => url === '/api/realtime/call' ? fetch(url, options) : Promise.resolve({ok:false});
+  f.voice.ended = closed => ended.push(closed);
+  await f.voice.start();
+  f.voice.peer.connectionState = 'failed'; f.voice.peer.onconnectionstatechange();
+  for (let i = 0; i < 10 && !ended.length; i++) await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(ended, [false]);
+  assert.equal(f.voice.callId, 'call-123');
+});
+
 test('permissions failure leaves no active call', async () => {
   const f = fixture({getUserMedia: async () => { throw new Error('Permission denied'); }});
   await assert.rejects(f.voice.start(), /Permission denied/);
