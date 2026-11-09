@@ -200,3 +200,20 @@ test('reports speech, lookup and provider errors without displaying provider det
   await f.voice.stop();
 });
 
+
+test('checks a transcript and deletes the original before responding with the approved request', async () => {
+  const f = fixture(); await f.voice.start();
+  f.voice.request = async (path, body) => {
+    assert.equal(path, '/api/realtime/scope');
+    assert.equal(body.transcript, 'Where is my order and what is the capital of France?');
+    return {decision:'allow', safe_text:'Where is my order?'};
+  };
+  const pending = f.voice.receive({type:'conversation.item.input_audio_transcription.completed', item_id:'i1', transcript:'Where is my order and what is the capital of France?'});
+  await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(f.sent, [{type:'conversation.item.delete', item_id:'i1'}]);
+  await f.voice.receive({type:'conversation.item.deleted', item_id:'i1'});
+  await pending;
+  assert.equal(f.sent[1].item.content[0].text, 'Where is my order?');
+  assert.equal(f.sent[2].type, 'response.create');
+  await f.voice.stop();
+});
