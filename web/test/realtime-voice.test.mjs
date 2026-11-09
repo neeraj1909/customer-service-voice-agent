@@ -228,3 +228,18 @@ test('scope failures delete the original and never start an answer', async () =>
   assert.deepEqual(f.sent, [{type:'conversation.item.delete', item_id:'i2'}]);
   await f.voice.stop();
 });
+
+test('does not answer an earlier turn after newer speech begins', async () => {
+  const f = fixture(); await f.voice.start();
+  let finish;
+  f.voice.request = () => new Promise(resolve => { finish = resolve; });
+  await f.voice.receive({type:'input_audio_buffer.speech_started', item_id:'old'});
+  const pending = f.voice.receive({type:'conversation.item.input_audio_transcription.completed', item_id:'old', transcript:'my order'});
+  await f.voice.receive({type:'input_audio_buffer.speech_started', item_id:'new'});
+  finish({decision:'allow', safe_text:'my order'});
+  await new Promise(resolve => setImmediate(resolve));
+  await f.voice.receive({type:'conversation.item.deleted', item_id:'old'});
+  await pending;
+  assert.deepEqual(f.sent, [{type:'conversation.item.delete', item_id:'old'}]);
+  await f.voice.stop();
+});
