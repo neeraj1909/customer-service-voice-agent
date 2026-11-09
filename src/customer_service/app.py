@@ -127,6 +127,14 @@ def create_app(db_path: Path | None = None, clock=time):
     def order(body: OrderRequest, context=current_session):
         return store.order(context[1], body.order_id)
 
+    @app.post("/api/order-details")
+    def order_details(body: OrderRequest, context=current_session):
+        return store.order_details(context[1], body.order_id)
+
+    @app.post("/api/orders")
+    def order_history(context=current_session):
+        return store.order_history(context[1])
+
     @app.post("/api/appointments/slots")
     def slots(body: AppointmentRequest, context=current_session):
         return {"slots": store.slots(context[1], body.appointment_id)}

@@ -15,6 +15,18 @@ from pathlib import Path
 FIXTURE_PATH = Path(__file__).with_name("fixtures") / "orders.json"
 FIXTURE_SHA256 = "3ba3becab9be35e39a468c31b8da396c95938577c4e0de52fc473146b588cfbe"
 FIXTURE_MARKER = "synthetic-orders-v1"
+ITEMS_MARKER = "synthetic-order-items-v1"
+# Products and amounts are fictional; money is stored as integer paise.
+CATALOG = (
+    ("Cotton T-shirt", 79900),
+    ("Insulated water bottle", 54900),
+    ("Wireless mouse", 89900),
+    ("Notebook set", 29900),
+    ("Canvas tote bag", 44900),
+    ("Desk lamp", 129900),
+    ("Coffee mug", 34900),
+    ("USB-C cable", 39900),
+)
 logger = logging.getLogger(__name__)
 
 
@@ -79,6 +91,10 @@ class Store:
         with self.connect() as db:
             db.executescript("""
                 CREATE TABLE IF NOT EXISTS orders(id TEXT PRIMARY KEY, customer TEXT NOT NULL, status TEXT NOT NULL);
+                CREATE TABLE IF NOT EXISTS order_items(
+                    order_id TEXT NOT NULL REFERENCES orders(id), line INTEGER NOT NULL,
+                    name TEXT NOT NULL, quantity INTEGER NOT NULL, unit_price_paise INTEGER NOT NULL,
+                    PRIMARY KEY(order_id, line));
                 CREATE TABLE IF NOT EXISTS slots(id TEXT PRIMARY KEY, time_utc TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS appointments(id TEXT PRIMARY KEY, customer TEXT NOT NULL,
                     slot TEXT NOT NULL UNIQUE REFERENCES slots(id), version INTEGER NOT NULL);
@@ -121,6 +137,27 @@ class Store:
                     if inserted.rowcount == 0:
                         collisions += 1
                 db.execute("INSERT INTO metadata VALUES (?)", (FIXTURE_MARKER,))
+            if not db.execute("SELECT 1 FROM metadata WHERE key=?", (ITEMS_MARKER,)).fetchone():
+                # Backfill only matching fictional owners. Never overwrite existing lines.
+                candidates = [
+                    {"id": "ord-a-100", "customer": "cust-a"},
+                    {"id": "ord-b-200", "customer": "cust-b"},
+                    *orders,
+                ]
+                for index, order in enumerate(candidates):
+                    if not db.execute(
+                        "SELECT 1 FROM orders WHERE id=? AND customer=?",
+                        (order["id"], order["customer"]),
+                    ).fetchone():
+                        continue
+                    for line in range(1, 2 + index % 3):
+                        name, unit_price = CATALOG[(index + line - 1) % len(CATALOG)]
+                        quantity = 1 + (index + line) % 2
+                        db.execute(
+                            "INSERT INTO order_items VALUES (?, ?, ?, ?, ?) ON CONFLICT DO NOTHING",
+                            (order["id"], line, name, quantity, unit_price),
+                        )
+                db.execute("INSERT INTO metadata VALUES (?)", (ITEMS_MARKER,))
         if collisions:
             logger.warning(
                 "Preserved %d existing order(s) colliding with synthetic fixture IDs", collisions
@@ -182,6 +219,39 @@ class Store:
             if not row:
                 raise ToolError("not_found")
             return dict(row)
+
+    def order_details(self, customer, order_id):
+        self.require_id(order_id)
+        with self.connect() as db:
+            row = db.execute(
+                "SELECT id,status FROM orders WHERE id=? AND customer=?", (order_id, customer)
+            ).fetchone()
+            if row is None:
+                raise ToolError("not_found")
+            rows = db.execute(
+                "SELECT i.name, i.quantity, i.unit_price_paise FROM order_items i "
+                "JOIN orders o ON o.id=i.order_id WHERE o.id=? AND o.customer=? ORDER BY i.line",
+                (order_id, customer),
+            ).fetchall()
+        items = [dict(item) for item in rows]
+        return {
+            **dict(row),
+            "currency": "INR",
+            "items": items,
+            "total_paise": sum(item["quantity"] * item["unit_price_paise"] for item in items)
+            if items
+            else None,
+        }
+
+    def order_history(self, customer):
+        with self.connect() as db:
+            ids = [
+                row[0]
+                for row in db.execute(
+                    "SELECT id FROM orders WHERE customer=? ORDER BY id", (customer,)
+                )
+            ]
+        return {"orders": [self.order_details(customer, order_id) for order_id in ids]}
 
     def slots(self, customer, appointment_id):
         self.require_id(appointment_id)
