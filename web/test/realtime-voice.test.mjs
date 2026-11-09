@@ -243,3 +243,16 @@ test('does not answer an earlier turn after newer speech begins', async () => {
   assert.deepEqual(f.sent, [{type:'conversation.item.delete', item_id:'old'}]);
   await f.voice.stop();
 });
+
+test('redirects in the detected language without passing the unrelated question to Mira', async () => {
+  const f = fixture(); await f.voice.start();
+  f.voice.request = async () => ({decision:'redirect', safe_text:'', language:'hi'});
+  const pending = f.voice.receive({type:'conversation.item.input_audio_transcription.completed', item_id:'hi', transcript:'फ्रांस की राजधानी क्या है?'});
+  await new Promise(resolve => setImmediate(resolve));
+  await f.voice.receive({type:'conversation.item.deleted', item_id:'hi'});
+  await pending;
+  assert.match(f.sent[1].item.content[0].text, /Hindi/);
+  assert.doesNotMatch(JSON.stringify(f.sent), /राजधानी/);
+  assert.equal(f.sent[2].type, 'response.create');
+  await f.voice.stop();
+});
