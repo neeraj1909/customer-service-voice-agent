@@ -16,6 +16,7 @@ from fastapi import HTTPException
 MAX_SDP_BYTES = 200_000
 MAX_CALLS = 2
 MAX_CALL_SECONDS = 300
+EXPIRED_RETRY_SECONDS = 30
 CALL_ID = re.compile(r"^[A-Za-z0-9_-]{1,200}$")
 logger = logging.getLogger(__name__)
 
@@ -192,15 +193,15 @@ class VoiceCalls:
 
     async def _expire(self, call_id):
         await asyncio.sleep(MAX_CALL_SECONDS)
-        for attempt in range(3):
+        while True:
             try:
                 await self.end(call_id, None, expired=True)
                 return
             except HTTPException as exc:
                 if exc.status_code == 404:
                     return
-                if attempt < 2:
-                    await asyncio.sleep(5)
+                logger.warning("Expired voice call cleanup failed; will retry")
+                await asyncio.sleep(EXPIRED_RETRY_SECONDS)
 
     async def end(self, call_id, owner, expired=False):
         async with self.lock:

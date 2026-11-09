@@ -149,3 +149,26 @@ def test_cancelled_create_closes_late_provider_call(monkeypatch):
         assert calls.pending == 0
 
     asyncio.run(exercise())
+
+
+def test_expired_call_cleanup_keeps_retrying_until_provider_confirms(monkeypatch):
+    monkeypatch.setenv("REALTIME_ENABLED", "1")
+    monkeypatch.setenv("OPENAI_API_KEY", "test")
+    monkeypatch.setattr("customer_service.realtime.MAX_CALL_SECONDS", 0)
+    monkeypatch.setattr("customer_service.realtime.EXPIRED_RETRY_SECONDS", 0.01)
+
+    class FailsThreeTimes(FakeProvider):
+        def hangup(self, call_id):
+            self.hangups.append(call_id)
+            if len(self.hangups) <= 3:
+                raise OSError("temporary failure")
+
+    async def exercise():
+        provider = FailsThreeTimes()
+        calls = VoiceCalls(provider)
+        call_id, _ = await calls.create("session", b"v=0")
+        await asyncio.wait_for(calls.calls[call_id][2], 2)
+        assert provider.hangups == [call_id] * 4
+        assert call_id not in calls.calls
+
+    asyncio.run(exercise())
