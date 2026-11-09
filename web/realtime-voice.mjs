@@ -27,10 +27,6 @@ export class RealtimeVoice {
     this.stream = null;
     this.channel = null;
     this.seenCalls = new Set();
-    this.speaking = false;
-    this.interrupted = new Set();
-    this.responseId = null;
-    this.playingResponseId = null;
     this.stopPromise = null;
   }
 
@@ -110,22 +106,20 @@ export class RealtimeVoice {
 
   async receive(data, generation = this.generation) {
     if (!data || typeof data.type !== 'string') return;
-    if (data.type === 'response.created') this.responseId = data.response?.id ?? null;
     if (data.type === 'input_audio_buffer.speech_started') {
-      this.speaking = true;
-      if (this.playingResponseId ?? this.responseId) this.interrupted.add(this.playingResponseId ?? this.responseId);
-      this.audio.muted = true;
-    } else if (data.type === 'input_audio_buffer.speech_stopped') this.speaking = false;
+      this.status('Listening.');
+    } else if (data.type === 'input_audio_buffer.speech_stopped') {
+      this.status('Processing your request.');
+    } else if (data.type === 'error') this.status('The voice service reported an error. Try again or restart the call.');
     else if (data.type === 'output_audio_buffer.started' || data.type === 'response.output_audio_buffer.started') {
-      const responseId = data.response_id ?? this.responseId;
-      this.playingResponseId = responseId;
-      if (!this.speaking && !this.interrupted.has(responseId)) this.audio.muted = false;
+      this.status('Mira is responding.');
     }
     this.event(data);
     if (data.type !== 'response.function_call_arguments.done') return;
     const {name, call_id: callId} = data;
     if (typeof callId !== 'string' || !callId || this.seenCalls.has(callId)) return;
     this.seenCalls.add(callId);
+    this.status('Checking your request.');
     let output;
     try {
       const args = JSON.parse(data.arguments);
@@ -146,6 +140,7 @@ export class RealtimeVoice {
     if (generation !== this.generation || this.channel?.readyState !== 'open') return;
     this.channel.send(JSON.stringify({type: 'conversation.item.create', item: {type: 'function_call_output', call_id: callId, output: JSON.stringify(output)}}));
     this.channel.send(JSON.stringify({type: 'response.create'}));
+    this.status('Preparing a response.');
   }
 
   closeLocal() {
@@ -158,10 +153,6 @@ export class RealtimeVoice {
     this.audio.srcObject = null;
     this.audio.muted = false;
     this.seenCalls.clear();
-    this.interrupted.clear();
-    this.speaking = false;
-    this.responseId = null;
-    this.playingResponseId = null;
   }
 
   async endServerCall() {

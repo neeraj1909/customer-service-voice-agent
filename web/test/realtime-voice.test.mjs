@@ -62,29 +62,16 @@ test('ending during offer negotiation stops capture and hangs up a late call', a
   assert.equal(f.calls[0].url, '/api/realtime/call/call-123');
 });
 
-test('interruption mutes old output and allows a later response', async () => {
+test('speech detection does not leave WebRTC playback muted during overlapping turns', async () => {
   const f = fixture(); await f.voice.start();
   await f.voice.receive({type:'response.created', response:{id:'r1'}});
   await f.voice.receive({type:'input_audio_buffer.speech_started'});
-  assert.equal(f.audio.muted, true);
-  await f.voice.receive({type:'input_audio_buffer.speech_stopped'});
-  await f.voice.receive({type:'output_audio_buffer.started', response_id:'r1'});
-  assert.equal(f.audio.muted, true);
-  await f.voice.receive({type:'response.created', response:{id:'r2'}});
-  await f.voice.receive({type:'output_audio_buffer.started', response_id:'r2'});
   assert.equal(f.audio.muted, false);
-  await f.voice.stop();
-});
-
-test('an old playing response remains muted after a newer response is created', async () => {
-  const f = fixture(); await f.voice.start();
-  await f.voice.receive({type:'response.created', response:{id:'r1'}});
   await f.voice.receive({type:'output_audio_buffer.started', response_id:'r1'});
-  await f.voice.receive({type:'response.created', response:{id:'r2'}});
-  await f.voice.receive({type:'input_audio_buffer.speech_started'});
   await f.voice.receive({type:'input_audio_buffer.speech_stopped'});
-  await f.voice.receive({type:'output_audio_buffer.started', response_id:'r1'});
-  assert.equal(f.audio.muted, true);
+  assert.equal(f.audio.muted, false);
+  await f.voice.receive({type:'output_audio_buffer.cleared', response_id:'r1'});
+  await f.voice.receive({type:'response.created', response:{id:'r2'}});
   await f.voice.receive({type:'output_audio_buffer.started', response_id:'r2'});
   assert.equal(f.audio.muted, false);
   await f.voice.stop();
