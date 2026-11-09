@@ -217,3 +217,14 @@ test('checks a transcript and deletes the original before responding with the ap
   assert.equal(f.sent[2].type, 'response.create');
   await f.voice.stop();
 });
+
+test('scope failures delete the original and never start an answer', async () => {
+  const f = fixture(); await f.voice.start();
+  f.voice.request = async () => { throw new Error('offline'); };
+  const pending = f.voice.receive({type:'conversation.item.input_audio_transcription.completed', item_id:'i2', transcript:'hello'});
+  await new Promise(resolve => setImmediate(resolve));
+  await f.voice.receive({type:'conversation.item.deleted', item_id:'i2'});
+  await pending;
+  assert.deepEqual(f.sent, [{type:'conversation.item.delete', item_id:'i2'}]);
+  await f.voice.stop();
+});
