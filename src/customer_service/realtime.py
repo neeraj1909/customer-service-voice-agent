@@ -54,6 +54,8 @@ def session_config():
             "Order IDs follow ord-a-201 style; interpret spoken letter names and dash as an exact ID, "
             "and ask for clarification if unsure. Prices are in paise: 100 paise equals one Indian rupee. "
             "When asked for all orders, report the count and offer to describe them in small groups. "
+            "The fictional orders do not have order dates. Do not invent which are most recent; "
+            "if asked for the last or latest orders, explain this and offer the last IDs in sorted order. "
             "For order status or appointment slots, call the matching tool and report only "
             "what it returns; never invent a result. Never claim an appointment was changed "
             "or a human was contacted. Explain that changes and local handoff requests "
@@ -90,7 +92,7 @@ def session_config():
             },
             "output": {"voice": "marin"},
         },
-        "max_output_tokens": 512,
+        "max_output_tokens": 2048,
     }
 
 
