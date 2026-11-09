@@ -124,3 +124,14 @@ test('normalizes a clearly spoken order identifier without changing its customer
   await f.voice.stop();
 });
 
+test('reports speech, lookup and provider errors without displaying provider details', async () => {
+  const f = fixture(), statuses = [];
+  f.voice.status = message => statuses.push(message);
+  await f.voice.start();
+  await f.voice.receive({type:'input_audio_buffer.speech_started'});
+  await f.voice.receive({type:'input_audio_buffer.speech_stopped'});
+  await f.voice.receive({type:'response.function_call_arguments.done', name:'list_orders', call_id:'status', arguments:'{}'});
+  await f.voice.receive({type:'error', error:{message:'private provider detail'}});
+  assert.deepEqual(statuses.slice(-5), ['Listening.', 'Processing your request.', 'Checking your request.', 'Preparing a response.', 'The voice service reported an error. Try again or restart the call.']);
+  await f.voice.stop();
+});
