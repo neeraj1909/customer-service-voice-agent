@@ -3,10 +3,11 @@
 import os
 import secrets
 import sqlite3
+from contextlib import asynccontextmanager
 from pathlib import Path
 from time import time
 
-from fastapi import Depends, FastAPI, Header, Request
+from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse, Response
 
@@ -21,16 +22,24 @@ from .domain import (
     SessionRequest,
     SynthesisRequest,
 )
+from .realtime import MAX_SDP_BYTES, VoiceCalls
 from .tools import Store, ToolError
 
 WEB = Path(__file__).resolve().parents[2] / "web"
 
 
-def create_app(db_path: Path | None = None, clock=time):
+def create_app(db_path: Path | None = None, clock=time, realtime_provider=None):
     path = Path(db_path or os.environ.get("DEMO_DB", "demo.sqlite3"))
     store = Store(path, clock)
     sessions: dict[str, str] = {}
-    app = FastAPI(title="Fictional local customer service")
+    voice_calls = VoiceCalls(realtime_provider)
+
+    @asynccontextmanager
+    async def lifespan(_app):
+        yield
+        await voice_calls.close()
+
+    app = FastAPI(title="Fictional local customer service", lifespan=lifespan)
 
     @app.exception_handler(audio.AudioError)
     async def audio_error(_request: Request, exc: audio.AudioError):
@@ -98,6 +107,10 @@ def create_app(db_path: Path | None = None, clock=time):
     def conversation_module():
         return FileResponse(WEB / "conversation.mjs", media_type="text/javascript")
 
+    @app.get("/realtime-voice.mjs")
+    def realtime_voice_module():
+        return FileResponse(WEB / "realtime-voice.mjs", media_type="text/javascript")
+
     @app.post("/api/sessions")
     def create_session(body: SessionRequest):
         if body.customer_id not in {"cust-a", "cust-b"}:
@@ -105,6 +118,32 @@ def create_app(db_path: Path | None = None, clock=time):
         token = secrets.token_hex(32)
         sessions[token] = body.customer_id
         return {"session_id": token, "customer_id": body.customer_id}
+
+    @app.post("/api/realtime/call")
+    async def realtime_call(request: Request, context=current_session):
+        if (
+            request.headers.get("content-type", "").split(";", 1)[0].strip().lower()
+            != "application/sdp"
+        ):
+            raise HTTPException(415, "Expected application/sdp")
+        offer = bytearray()
+        async for chunk in request.stream():
+            offer.extend(chunk)
+            if len(offer) > MAX_SDP_BYTES:
+                raise HTTPException(413, "SDP offer too large")
+        if not offer or not offer.startswith(b"v=0"):
+            raise HTTPException(400, "Invalid SDP offer")
+        call_id, answer = await voice_calls.create(context[0], bytes(offer))
+        return Response(
+            answer,
+            media_type="application/sdp",
+            headers={"X-Call-ID": call_id, "Cache-Control": "no-store"},
+        )
+
+    @app.delete("/api/realtime/call/{call_id}")
+    async def end_realtime_call(call_id: str, context=current_session):
+        await voice_calls.end(call_id, context[0])
+        return Response(status_code=204)
 
     @app.post("/api/audio/transcribe")
     async def transcribe(request: Request, _context=current_session):
