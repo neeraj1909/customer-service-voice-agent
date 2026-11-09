@@ -1,5 +1,13 @@
 # Evidence: controlled text evaluation
 
+## Voice interruptions, language and connection recovery (2026-11-09)
+
+The opt-in voice configuration now instructs Mira to honor an explicitly requested ongoing language for the current call, allow one-turn overrides, otherwise match the current request language, and continue an interrupted answer after non-speech. Server VAD uses threshold 0.6 and a 700 ms silence interval. A higher threshold can miss quiet speech; the interruption instruction is model behavior, not a guaranteed cough classifier or exact-word playback resume. The model preference is held in call context and is not stored across calls. The separate MyNaksh text assignment was consulted for the distinction between explicit preferences and the language of the current turn; no code was copied.
+
+A real provider call through a Chrome WebRTC peer accepted the revised configuration. With typed messages on its data channel, one English request produced an English answer; after an explicit ongoing Hindi request, a following English question produced a Hindi answer. This is one short model probe, not a multilingual speech benchmark. The provider call was explicitly ended. OpenAI documents that its [WebRTC interruption handling](https://developers.openai.com/api/docs/guides/realtime-conversations) truncates unplayed audio but cannot precisely align audio and transcript, so exact continuation is not established by this probe.
+
+For a failed peer connection, the browser now attempts to end the tracked call and enables a new call when cleanup succeeds; if cleanup fails it keeps the End control available. A temporary `disconnected` state waits for recovery. Unit/UI checks simulate these events; the cause of the user's early connection failure is unknown and a network break with real media remains unverified. A new call does not restore the previous provider conversation.
+
 ## Voice call limit recovery (2026-11-09)
 
 The running demo returned HTTP 429 with `Realtime call limit reached`: its local limit is two tracked or pending calls. The individual calls' ages and provider state were not inspected, so the reason those slots were occupied is unknown. The previous expiry task stopped retrying after three failed hangups, leaving an unconfirmed call counted indefinitely. It now continues retrying every 30 seconds until the provider confirms hangup, preserving the limit while cleanup is uncertain. The browser explains the local limit. Persistent provider errors can still keep a slot occupied and need investigation; retries do not prove that a provider call has ended.
