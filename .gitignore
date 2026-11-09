@@ -7,3 +7,5 @@ __pycache__/
 *.sqlite3-journal
 *.sqlite3-wal
 *.sqlite3-shm
+
+tmp/
