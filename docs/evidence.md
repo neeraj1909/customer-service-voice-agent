@@ -1,5 +1,13 @@
 # Evidence: controlled text evaluation
 
+## Five-order response and noise controls (2026-11-09)
+
+The user reported that Asha's five-order response stopped during the second order and changed languages. Server HTTP logs show an order-history request but do not identify whether the response was interrupted, reached a token limit, or encountered another failure. The previous 512-token output limit was a possible cause; it is now 2048, which may increase provider usage. The browser surfaces documented provider cancellation and token-limit reasons when received, but cannot recover events that were never observed.
+
+An isolated Chrome WebRTC peer sent a typed English five-order request to the real provider, supplied the scoped order-history tool result, and received five order entries in English. Both response stages reported `completed`; the probe did not play or hear audio and cannot reproduce the user's noise conditions. The initial probe timed out waiting for playback-buffer drainage in a headless browser; the revised probe inspected generation completion instead. The fixtures have no order dates, so they cannot establish which orders are most recent. After the model was instructed to disclose this and offer sorted IDs instead, a second probe returned five entries explicitly in ID order but did not explicitly state that order dates were unavailable. That disclosure remains unreliable.
+
+The page now offers an explicit per-call voice language and a microphone mute control. The chosen language is sent as a fixed user instruction at call setup, not persisted between calls. Muting disables the outgoing audio track until unmuted; it prevents background sound from reaching the provider but also prevents spoken interruption. Noisy-room performance, real microphone playback, language consistency and exact continuation still require live user verification.
+
 ## Voice interruptions, language and connection recovery (2026-11-09)
 
 The opt-in voice configuration now instructs Mira to honor an explicitly requested ongoing language for the current call, allow one-turn overrides, otherwise match the current request language, and continue an interrupted answer after non-speech. Server VAD uses threshold 0.6 and a 700 ms silence interval. A higher threshold can miss quiet speech; the interruption instruction is model behavior, not a guaranteed cough classifier or exact-word playback resume. The model preference is held in call context and is not stored across calls. The separate MyNaksh text assignment was consulted for the distinction between explicit preferences and the language of the current turn; no code was copied.
