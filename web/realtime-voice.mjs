@@ -45,7 +45,7 @@ export class RealtimeVoice {
     this.starting = true;
     this.status('Connecting; allow microphone access when prompted.');
     try {
-      const stream = await this.media.getUserMedia({audio: true, video: false});
+      const stream = await this.media.getUserMedia({audio: {echoCancellation: true, noiseSuppression: true}, video: false});
       if (generation !== this.generation) { stream.getTracks().forEach(track => track.stop()); return false; }
       this.stream = stream;
       const peer = new this.Peer();

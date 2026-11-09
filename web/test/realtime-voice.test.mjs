@@ -77,6 +77,16 @@ test('speech detection does not leave WebRTC playback muted during overlapping t
   await f.voice.stop();
 });
 
+test('requests browser echo cancellation and noise suppression', async () => {
+  let constraints;
+  const track = {stop() {}};
+  const stream = {getTracks: () => [track], getAudioTracks: () => [track]};
+  const f = fixture({getUserMedia: async value => { constraints = value; return stream; }});
+  await f.voice.start();
+  assert.deepEqual(constraints, {audio:{echoCancellation:true, noiseSuppression:true}, video:false});
+  await f.voice.stop();
+});
+
 test('permits only well-formed read tools once per call ID', async () => {
   const f = fixture(); await f.voice.start();
   const event = {type:'response.function_call_arguments.done', name:'lookup_order', call_id:'c1', arguments:'{"order_id":"ord-a-201"}'};
