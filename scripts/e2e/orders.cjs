@@ -64,7 +64,7 @@ with sqlite3.connect(sys.argv[1]) as c:
       window.__orderResponses = [];
       window.fetch = async (...args) => {
         const response = await original(...args);
-        if (args[0] === '/api/order') {
+        if (args[0] === '/api/order-details') {
           window.__orderResponses.push({status: response.status, body: await response.clone().json()});
         }
         return response;
@@ -105,6 +105,7 @@ with sqlite3.connect(sys.argv[1]) as c:
       })()`);
       const [own, other, absent] = result;
       if (own.wire.status !== 200 || own.wire.body.id !== owned || own.wire.body.status !== status ||
+          !own.wire.body.items.length || own.wire.body.currency !== 'INR' ||
           !own.visible.includes(owned) || !own.visible.includes(status)) {
         throw new Error(`${customer} owned order mismatch: ${JSON.stringify(own)}`);
       }
