@@ -136,6 +136,16 @@ with sqlite3.connect(sys.argv[1]) as c:
     if (voiceTool[0]?.id !== 'ord-a-201' || !voiceTool[0]?.items?.length || !voiceTool[1]?.error) {
       throw new Error(`voice tool scoped lookup mismatch: ${JSON.stringify(voiceTool)}`);
     }
+    const playback = await evaluate(`(async () => {
+      const {RealtimeVoice} = await import('/realtime-voice.mjs');
+      const audio = document.getElementById('voice-playback');
+      const voice = new RealtimeVoice({audio});
+      await voice.receive({type:'input_audio_buffer.speech_started'});
+      await voice.receive({type:'output_audio_buffer.started', response_id:'r1'});
+      await voice.receive({type:'input_audio_buffer.speech_stopped'});
+      return {muted:audio.muted, paused:audio.paused};
+    })()`);
+    if (playback.muted) throw new Error('voice playback remained muted during overlapping events');
     const after = inspectDatabase();
     if (JSON.stringify(after) !== JSON.stringify(before)) throw new Error('order reads changed persisted state');
     console.log('ORDERS_E2E_PASS: 50 seeded records; owner and foreign lookups; spoken-form voice tool through browser and HTTP; SQLite unchanged');
