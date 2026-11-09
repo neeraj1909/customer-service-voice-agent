@@ -142,6 +142,14 @@ test('selected language is sent only from the fixed allowlist', async () => {
   await invalid.voice.stop();
 });
 
+test('reports why a response stopped when provider gives a known reason', async () => {
+  const f = fixture(), statuses=[]; f.voice.status = text => statuses.push(text);
+  await f.voice.receive({type:'response.done',response:{status:'incomplete',status_details:{reason:'max_output_tokens'}}});
+  assert.match(statuses.at(-1), /length limit/);
+  await f.voice.receive({type:'response.done',response:{status:'cancelled',status_details:{reason:'turn_detected'}}});
+  assert.match(statuses.at(-1), /heard a sound/);
+});
+
 test('permits only well-formed read tools once per call ID', async () => {
   const f = fixture(); await f.voice.start();
   const event = {type:'response.function_call_arguments.done', name:'lookup_order', call_id:'c1', arguments:'{"order_id":"ord-a-201"}'};

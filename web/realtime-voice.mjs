@@ -127,6 +127,8 @@ export class RealtimeVoice {
     } else if (data.type === 'input_audio_buffer.speech_stopped') {
       this.status('Processing your request.');
     } else if (data.type === 'error') this.status('The voice service reported an error. Try again or restart the call.');
+    else if (data.type === 'response.done' && data.response?.status === 'incomplete' && data.response?.status_details?.reason === 'max_output_tokens') this.status('The answer reached its length limit. Ask Mira to continue.');
+    else if (data.type === 'response.done' && data.response?.status === 'cancelled' && data.response?.status_details?.reason === 'turn_detected') this.status('Mira heard a sound and stopped. Ask her to continue, or mute your microphone while she speaks.');
     else if (data.type === 'output_audio_buffer.started' || data.type === 'response.output_audio_buffer.started') {
       this.status('Mira is responding.');
     }
