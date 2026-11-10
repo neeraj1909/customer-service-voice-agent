@@ -10,22 +10,22 @@ function setBusy(change) { activeRequests += change; $('customer').disabled = ac
 let voice = null, voiceBusy = false;
 const voiceStatus = message => { $('voice-status').textContent = message; };
 function releaseVoiceBusy() { if (voiceBusy) { voiceBusy = false; setBusy(-1); } }
-function resetVoiceControls() { $('voice-restart').hidden = true; $('voice-mute').disabled = true; $('voice-mute').textContent = 'Mute microphone'; $('voice-mute').setAttribute('aria-pressed', 'false'); $('voice-language').disabled = false; }
+function resetVoiceControls() { $('voice-restart').hidden = true; $('voice-restart').textContent = 'Pause'; $('voice-mute').disabled = true; $('voice-mute').textContent = 'Mute microphone'; $('voice-mute').setAttribute('aria-pressed', 'false'); $('voice-language').disabled = false; }
 $('voice-start').onclick = async () => {
   if (!session) { voiceStatus('Start a fictional customer session first.'); return; }
   if (voiceBusy || voice?.callId) return;
   voiceBusy = true; setBusy(1);
   $('voice-start').disabled = true; $('voice-stop').disabled = false; $('voice-language').disabled = true;
   voice = new RealtimeVoice({session, request:call, audio:$('voice-playback'), language:$('voice-language').value, status:voiceStatus,
-    paused: isPaused => { $('voice-restart').hidden = !isPaused; $('voice-mute').disabled = isPaused; },
+    paused: isPaused => { $('voice-restart').textContent = isPaused ? 'Resume' : 'Pause'; $('voice-mute').disabled = isPaused; },
     ended: closed => { if (closed) { releaseVoiceBusy(); resetVoiceControls(); $('voice-stop').disabled = true; $('voice-start').disabled = false; } else $('voice-stop').disabled = false; }});
-  try { if (await voice.start()) $('voice-mute').disabled = false; }
+  try { if (await voice.start()) { $('voice-mute').disabled = voice.isPaused; $('voice-restart').textContent = voice.isPaused ? 'Resume' : 'Pause'; $('voice-restart').hidden = false; } }
   catch (error) { voiceStatus(`Voice could not start: ${error.message}`); if (!voice.callId) { releaseVoiceBusy(); resetVoiceControls(); $('voice-stop').disabled = true; $('voice-start').disabled = false; } }
 };
 $('voice-restart').onclick = async () => {
   $('voice-restart').disabled = true;
-  try { await voice?.restart(); }
-  catch (error) { voiceStatus(`Voice could not restart: ${error.message}`); }
+  try { if (voice?.isPaused) await voice.restart(); else await voice?.pause(); }
+  catch (error) { voiceStatus(`Voice could not ${voice?.isPaused ? 'resume' : 'pause'}: ${error.message}`); }
   finally { $('voice-restart').disabled = false; }
 };
 $('voice-mute').onclick = () => {

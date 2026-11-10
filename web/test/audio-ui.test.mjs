@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import {readFile} from 'node:fs/promises';
 
 function dom() {
   const elements = new Map();
@@ -12,6 +13,11 @@ function dom() {
   }
   return {element, document:{getElementById:element, createElement:() => ({textContent:''})}};
 }
+
+test('the voice pause control follows the assistant status', async () => {
+  const html = await readFile(new URL('../index.html', import.meta.url), 'utf8');
+  assert.match(html, /id="voice-status"[^>]*>[^<]*<\/p>\s*<button[^>]*id="voice-restart"/);
+});
 
 test('changing file and a failed transcription clear the old transcript and block copying', async () => {
   const {element, document} = dom();
@@ -159,11 +165,12 @@ test('a failed voice connection offers restart in the existing customer session'
     await element('start').onclick();
     await element('voice-start').onclick();
     peer.connectionState='failed'; peer.onconnectionstatechange();
-    for (let i=0; i<10 && element('voice-restart').hidden !== false; i++) await new Promise(resolve=>setImmediate(resolve));
+    for (let i=0; i<10 && element('voice-restart').textContent !== 'Resume'; i++) await new Promise(resolve=>setImmediate(resolve));
     assert.equal(element('voice-start').disabled, true);
     assert.equal(element('voice-stop').disabled, false);
     assert.equal(element('voice-restart').hidden, false);
-    assert.match(element('voice-status').textContent, /Restart/);
+    assert.equal(element('voice-restart').textContent, 'Resume');
+    assert.match(element('voice-status').textContent, /Resume/);
     await element('voice-stop').onclick();
   } finally {
     if (oldNavigator) Object.defineProperty(globalThis, 'navigator', oldNavigator); else delete globalThis.navigator;
@@ -197,6 +204,44 @@ test('the microphone control mutes and unmutes a live call', async () => {
     assert.equal(track.enabled, true);
     await element('voice-stop').onclick();
     assert.equal(element('voice-mute').disabled, true);
+  } finally {
+    if (oldNavigator) Object.defineProperty(globalThis, 'navigator', oldNavigator); else delete globalThis.navigator;
+    if (oldPeer) globalThis.RTCPeerConnection = oldPeer; else delete globalThis.RTCPeerConnection;
+  }
+});
+
+test('the pause control pauses and resumes a call without ending its customer session', async () => {
+  const {element, document} = dom(); globalThis.document = document;
+  const oldNavigator = Object.getOwnPropertyDescriptor(globalThis, 'navigator'), oldPeer = globalThis.RTCPeerConnection;
+  const track = {enabled:true, stop(){}};
+  let peer;
+  Object.defineProperty(globalThis, 'navigator', {configurable:true, value:{mediaDevices:{getUserMedia:async()=>({getTracks:()=>[track], getAudioTracks:()=>[track]})}}});
+  globalThis.RTCPeerConnection = class {
+    constructor() { peer=this; this.connectionState='connected'; }
+    createDataChannel() { return this.channel={readyState:'open', close(){}, send(){}}; }
+    addTrack() {}
+    async createOffer() { return {sdp:'offer'}; }
+    async setLocalDescription(d) { this.localDescription=d; }
+    async setRemoteDescription() {}
+    close() {}
+  };
+  globalThis.fetch = async path => path === '/api/sessions' ? {ok:true,json:async()=>({session_id:'s',customer_id:'cust-a'})} :
+    path === '/api/realtime/call' ? {ok:true,headers:{get:()=> 'call-id'},text:async()=> 'answer'} : {ok:true};
+  try {
+    element('customer').value='cust-a'; element('conversation-language').value='en';
+    await import('../app.js?live-voice-pause');
+    await element('start').onclick(); await element('voice-start').onclick(); peer.channel.onopen();
+    assert.equal(element('voice-restart').hidden, false);
+    assert.equal(element('voice-restart').textContent, 'Pause');
+    await element('voice-restart').onclick();
+    assert.equal(track.enabled, false);
+    assert.equal(element('voice-restart').textContent, 'Resume');
+    assert.equal(element('customer').disabled, true);
+    await element('voice-restart').onclick();
+    assert.equal(track.enabled, true);
+    assert.equal(element('voice-restart').textContent, 'Pause');
+    await element('voice-stop').onclick();
+    assert.equal(element('voice-restart').hidden, true);
   } finally {
     if (oldNavigator) Object.defineProperty(globalThis, 'navigator', oldNavigator); else delete globalThis.navigator;
     if (oldPeer) globalThis.RTCPeerConnection = oldPeer; else delete globalThis.RTCPeerConnection;

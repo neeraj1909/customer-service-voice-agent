@@ -31,12 +31,14 @@ export class RealtimeVoice {
     this.turn = 0;
     this.approvedTurn = null;
     this.itemTurns = new Map();
+    this.interruptedItems = new Set();
     this.uncheckedItems = new Set();
     this.lastApproved = '';
     this.deletions = new Map();
     this.history = [];
     this.outputTranscripts = new Map();
     this.idleTimer = null;
+    this.idleDeadline = null;
     this.isPaused = false;
     this.microphoneMuted = false;
     this.idleMs = 30000;
@@ -93,12 +95,12 @@ export class RealtimeVoice {
           void this.stop(true).then(() => {
             if (this.endRequested) return;
             this.isPaused = true;
-            this.status('Voice connection interrupted. Select Restart to continue this session.');
+            this.status('Voice connection interrupted. Select Resume to continue this session.');
             this.paused(true);
           }).catch(() => {
             if (this.endRequested) return;
             this.isPaused = true;
-            this.status('Could not confirm the previous connection ended. Select Restart to retry.');
+            this.status('Could not confirm the previous connection ended. Select Resume to retry.');
             this.paused(true);
             this.ended(false);
           });
@@ -151,18 +153,20 @@ export class RealtimeVoice {
       this.turn++;
       if (typeof data.item_id === 'string') {
         this.itemTurns.set(data.item_id, this.turn);
+        if (this.assistantActive) this.interruptedItems.add(data.item_id);
         this.uncheckedItems.add(data.item_id);
       }
       this.status('Listening.');
     } else if (data.type === 'input_audio_buffer.speech_stopped') {
       this.status('Processing your request.');
+      if (!this.uncheckedItems.size) { this.userActive = false; this.armIdle(); }
     } else if (data.type === 'error') this.status('The voice service reported an error. Try again or restart the call.');
     else if (data.type === 'response.done' && data.response?.status === 'incomplete' && data.response?.status_details?.reason === 'max_output_tokens') this.status('The answer reached its length limit. Ask Mira to continue.');
-    else if (data.type === 'response.done' && data.response?.status === 'cancelled' && data.response?.status_details?.reason === 'turn_detected') this.status('Mira heard a sound and stopped. Ask her to continue, or mute your microphone while she speaks.');
+    else if (data.type === 'response.done' && data.response?.status === 'cancelled' && data.response?.status_details?.reason === 'turn_detected') this.status('Checking the interruption.');
     else if (data.type === 'output_audio_buffer.started' || data.type === 'response.output_audio_buffer.started') {
       this.status('Mira is responding.');
     }
-    if (data.type === 'response.created' || data.type === 'output_audio_buffer.started') { this.assistantActive = true; this.clearIdle(); }
+    if (data.type === 'response.created' || data.type === 'output_audio_buffer.started' || data.type === 'response.output_audio_buffer.started') { this.assistantActive = true; this.clearIdle(); this.idleDeadline = null; }
     if (data.type === 'response.output_audio_transcript.done' && typeof data.response_id === 'string' && typeof data.transcript === 'string') this.outputTranscripts.set(data.response_id, data.transcript);
     if (data.type === 'output_audio_buffer.stopped') {
       this.assistantActive = false;
@@ -220,6 +224,7 @@ export class RealtimeVoice {
     this.uncheckedItems.add(itemId);
     const turn = this.itemTurns.get(itemId) ?? this.turn;
     this.itemTurns.delete(itemId);
+    const interrupted = this.interruptedItems.delete(itemId);
     let result;
     try {
       if (failed) throw new Error('transcription failed');
@@ -252,14 +257,20 @@ export class RealtimeVoice {
       this.armIdle();
       return;
     }
+    if (result.decision === 'noise' && !interrupted) {
+      this.status('Listening.');
+      this.armIdle();
+      return;
+    }
     const messages = {
       redirect:'Please briefly explain that you can only help with this customer service demo, and ask how you can help with an order or appointment.',
       clarify:'Please ask me to clarify my customer service question.',
-      noise:'Please continue your interrupted customer service answer if there was one.',
+      noise:'A background sound interrupted your answer. Give one brief line of context about what you were discussing, then continue the answer using the conversation context. Keep the current language preference.',
     };
     const languages = {en:'English', hi:'Hindi', hinglish:'Hinglish'};
-    const languageHint = Object.hasOwn(languages, result.language) ? ` The last utterance was in ${languages[result.language]}; respect any ongoing language preference, otherwise respond in that language.` : '';
+    const languageHint = result.decision !== 'noise' && Object.hasOwn(languages, result.language) ? ` The last utterance was in ${languages[result.language]}; respect any ongoing language preference, otherwise respond in that language.` : '';
     const text = result.decision === 'allow' ? result.safe_text : messages[result.decision] + languageHint;
+    this.idleDeadline = null;
     if (result.decision === 'allow') { this.lastApproved = text; this.history.push({role:'user', text}); }
     this.approvedTurn = turn;
     this.channel.send(JSON.stringify({type:'conversation.item.create', item:{type:'message', role:'user', content:[{type:'input_text', text}]}}));
@@ -269,6 +280,7 @@ export class RealtimeVoice {
 
   closeLocal() {
     this.clearIdle();
+    this.idleDeadline = null;
     this.generation++;
     this.starting = false;
     if (this.channel) { this.channel.onmessage = null; this.channel.close(); this.channel = null; }
@@ -281,6 +293,7 @@ export class RealtimeVoice {
     for (const resolve of this.deletions.values()) resolve(false);
     this.approvedTurn = null;
     this.itemTurns.clear();
+    this.interruptedItems.clear();
     this.uncheckedItems.clear();
     this.outputTranscripts.clear();
     this.userActive = false;
@@ -289,22 +302,32 @@ export class RealtimeVoice {
 
   clearIdle() { clearTimeout(this.idleTimer); this.idleTimer = null; }
 
+  pause() {
+    if (!this.stream || this.isPaused) return false;
+    this.clearIdle();
+    this.idleDeadline = null;
+    this.isPaused = true;
+    this.stream.getAudioTracks().forEach(track => { track.enabled = false; });
+    this.status('Microphone paused. Mira will finish any current response. Select Resume to continue.');
+    this.paused(true);
+    return true;
+  }
+
   armIdle() {
     this.clearIdle();
     if (this.isPaused || !this.stream || this.userActive || this.assistantActive) return;
+    this.idleDeadline ??= Date.now() + this.idleMs;
     this.idleTimer = setTimeout(() => {
-      this.isPaused = true;
-      this.stream?.getAudioTracks().forEach(track => { track.enabled = false; });
-      this.status('Voice paused after 30 seconds of inactivity. Select Restart to continue.');
-      this.paused(true);
-    }, this.idleMs);
+      this.pause();
+      this.status('Voice paused after 30 seconds of inactivity. Select Resume to continue.');
+    }, Math.max(0, this.idleDeadline - Date.now()));
     this.idleTimer?.unref?.();
   }
 
   async restart() {
     if (!this.isPaused) return;
     if (this.peer && (['disconnected', 'failed', 'closed'].includes(this.peer.connectionState) || this.channel?.readyState !== 'open')) {
-      throw new Error('The connection is still recovering. Please try Restart again.');
+      throw new Error('The connection is still recovering. Please try Resume again.');
     }
     if (this.callId && !this.peer) await this.endServerCall();
     if (!this.peer) {

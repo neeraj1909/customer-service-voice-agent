@@ -52,7 +52,7 @@ test('a failed connection closes the call and offers restart', async () => {
   assert.deepEqual(paused, [true]);
   assert.equal(f.track.stopped, true);
   assert.equal(f.calls.at(-1).url, '/api/realtime/call/call-123');
-  assert.match(statuses.at(-1), /Restart/);
+  assert.match(statuses.at(-1), /Resume/);
 });
 
 test('failed cleanup keeps the End call recovery path available', async () => {
@@ -147,7 +147,7 @@ test('reports why a response stopped when provider gives a known reason', async 
   await f.voice.receive({type:'response.done',response:{status:'incomplete',status_details:{reason:'max_output_tokens'}}});
   assert.match(statuses.at(-1), /length limit/);
   await f.voice.receive({type:'response.done',response:{status:'cancelled',status_details:{reason:'turn_detected'}}});
-  assert.match(statuses.at(-1), /heard a sound/);
+  assert.match(statuses.at(-1), /Checking the interruption/);
 });
 
 test('permits only well-formed read tools once per call ID', async () => {
@@ -258,13 +258,65 @@ test('redirects in the detected language without passing the unrelated question 
 
 test('an empty transcription can resume an interrupted answer without a model check', async () => {
   const f = fixture(); await f.voice.start();
+  f.voice.lastApproved = 'What are my orders?';
+  await f.voice.receive({type:'output_audio_buffer.started'});
+  await f.voice.receive({type:'input_audio_buffer.speech_started', item_id:'noise'});
   f.voice.request = async () => { throw Error('unexpected'); };
   const pending = f.voice.receive({type:'conversation.item.input_audio_transcription.completed', item_id:'noise', transcript:''});
   await new Promise(resolve => setImmediate(resolve));
   await f.voice.receive({type:'conversation.item.deleted', item_id:'noise'});
   await pending;
   assert.match(f.sent[1].item.content[0].text, /continue/);
+  assert.match(f.sent[1].item.content[0].text, /brief.*context/i);
   assert.equal(f.sent[2].type, 'response.create');
+  await f.voice.stop();
+});
+
+test('noise when no answer was interrupted does not create a response', async () => {
+  const f = fixture(); await f.voice.start();
+  await f.voice.receive({type:'input_audio_buffer.speech_started', item_id:'noise'});
+  const pending = f.voice.receive({type:'conversation.item.input_audio_transcription.completed', item_id:'noise', transcript:''});
+  await new Promise(resolve => setImmediate(resolve));
+  await f.voice.receive({type:'conversation.item.deleted', item_id:'noise'}); await pending;
+  assert.deepEqual(f.sent, [{type:'conversation.item.delete', item_id:'noise'}]);
+  await f.voice.stop();
+});
+
+test('noise does not reset the idle deadline', async () => {
+  const f = fixture(), states = []; f.voice.paused = value => states.push(value);
+  await f.voice.start(); f.voice.idleMs = 30; f.voice.armIdle();
+  await new Promise(resolve => setTimeout(resolve, 20));
+  await f.voice.receive({type:'input_audio_buffer.speech_started', item_id:'noise'});
+  const pending = f.voice.receive({type:'conversation.item.input_audio_transcription.completed', item_id:'noise', transcript:''});
+  await new Promise(resolve => setImmediate(resolve));
+  await f.voice.receive({type:'conversation.item.deleted', item_id:'noise'}); await pending;
+  await new Promise(resolve => setTimeout(resolve, 20));
+  assert.deepEqual(states, [true]);
+  await f.voice.stop();
+});
+
+test('a newer utterance prevents an earlier noise decision from resuming', async () => {
+  const f = fixture(); await f.voice.start();
+  await f.voice.receive({type:'output_audio_buffer.started'});
+  await f.voice.receive({type:'input_audio_buffer.speech_started', item_id:'old'});
+  let finish;
+  f.voice.request = () => new Promise(resolve => { finish = resolve; });
+  const pending = f.voice.receive({type:'conversation.item.input_audio_transcription.completed', item_id:'old', transcript:'cough'});
+  await f.voice.receive({type:'input_audio_buffer.speech_started', item_id:'new'});
+  finish({decision:'noise', language:'hi'});
+  await new Promise(resolve => setImmediate(resolve));
+  await f.voice.receive({type:'conversation.item.deleted', item_id:'old'}); await pending;
+  assert.deepEqual(f.sent, [{type:'conversation.item.delete', item_id:'old'}]);
+  await f.voice.stop();
+});
+
+test('manual pause and resume keep the active call and disable microphone', async () => {
+  const f = fixture(), states = []; f.voice.paused = value => states.push(value);
+  await f.voice.start(); f.voice.channel.onopen();
+  f.voice.pause();
+  assert.equal(f.track.enabled, false); assert.equal(f.voice.callId, 'call-123');
+  await f.voice.restart();
+  assert.equal(f.track.enabled, true); assert.deepEqual(states, [true, false]);
   await f.voice.stop();
 });
 
