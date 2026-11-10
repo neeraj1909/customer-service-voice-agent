@@ -8,13 +8,13 @@ function fixture({getUserMedia} = {}) {
   class Peer {
     constructor() { this.connectionState = 'new'; }
     createDataChannel() { return this.channel = {readyState:'open', send: x => sent.push(JSON.parse(x)), close() { this.closed = true; }}; }
-    addTrack() {}
+    addTrack() { return {replaceTrack:async()=>{}}; }
     async createOffer() { return {sdp:'offer'}; }
     async setLocalDescription(description) { this.localDescription = description; }
     async setRemoteDescription(description) { this.remoteDescription = description; }
     close() { this.closed = true; }
   }
-  const audio = {muted:false, pause(){this.paused=true;}, play:async()=>{}};
+  const audio = {muted:false, srcObject:{}, pause(){this.paused=true;}, async play(){this.paused=false;}};
   const media = {getUserMedia: getUserMedia ?? (async () => stream)};
   const fetchImpl = async (url, options) => { calls.push({url, options}); return url === '/api/realtime/call' ?
     {ok:true, headers:{get: () => 'call-123'}, text:async()=> 'answer'} : {ok:true}; };
@@ -314,10 +314,101 @@ test('manual pause and resume keep the active call and disable microphone', asyn
   const f = fixture(), states = []; f.voice.paused = value => states.push(value);
   await f.voice.start(); f.voice.channel.onopen();
   f.voice.pause();
-  assert.equal(f.track.enabled, false); assert.equal(f.voice.callId, 'call-123');
+  assert.equal(f.track.enabled, false); assert.equal(f.track.stopped, true); assert.equal(f.voice.callId, 'call-123');
   await f.voice.restart();
   assert.equal(f.track.enabled, true); assert.deepEqual(states, [true, false]);
   await f.voice.stop();
+});
+
+test('idle pause stops playback and resume starts it again', async () => {
+  const f = fixture(); await f.voice.start(); f.voice.channel.onopen();
+  await f.audio.play(); f.voice.pause();
+  assert.equal(f.audio.paused, true);
+  await f.voice.restart();
+  assert.equal(f.audio.paused, false);
+  await f.voice.stop();
+});
+
+test('pause lets an active answer finish before pausing playback', async () => {
+  const f = fixture(); await f.voice.start(); f.voice.channel.onopen();
+  await f.audio.play();
+  await f.voice.receive({type:'output_audio_buffer.started'}); f.voice.pause();
+  assert.equal(f.audio.paused, false);
+  await f.voice.receive({type:'output_audio_buffer.stopped', response_id:'r'});
+  assert.equal(f.audio.paused, true);
+  await f.voice.stop();
+});
+
+test('a late playback rejection does not overwrite the paused status', async () => {
+  const f = fixture(), statuses = []; f.voice.status = message => statuses.push(message);
+  await f.voice.start(); f.voice.channel.onopen(); f.voice.pause();
+  let rejectPlay; f.audio.play = () => new Promise((_resolve, reject) => { rejectPlay = reject; });
+  await f.voice.restart(); f.voice.pause();
+  rejectPlay(new Error('blocked')); await new Promise(resolve => setImmediate(resolve));
+  assert.match(statuses.at(-1), /Microphone off/);
+  await f.voice.stop();
+});
+
+test('pause detaches the stopped microphone before acquiring one on resume', async () => {
+  const f = fixture(); await f.voice.start(); f.voice.channel.onopen();
+  let finishDetach, attached;
+  f.voice.audioSender.replaceTrack = track => {
+    if (track === null) return new Promise(resolve => { finishDetach = resolve; });
+    attached = track; return Promise.resolve();
+  };
+  f.voice.pause();
+  assert.equal(f.track.stopped, true);
+  const resuming = f.voice.restart();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(attached, undefined);
+  finishDetach(); await resuming;
+  assert.equal(attached, f.track);
+  await f.voice.stop();
+});
+
+test('resume attaches a fresh microphone track to the existing call', async () => {
+  const tracks = [];
+  const f = fixture({getUserMedia: async () => {
+    const track = {enabled:true, stopped:false, stop(){this.stopped=true;}};
+    tracks.push(track);
+    return {getTracks:()=>[track], getAudioTracks:()=>[track]};
+  }});
+  await f.voice.start(); f.voice.channel.onopen();
+  let attached;
+  f.voice.audioSender.replaceTrack = async track => { attached = track; };
+  f.voice.pause(); await f.voice.restart();
+  assert.equal(tracks[0].stopped, true);
+  assert.equal(attached, tracks[1]);
+  assert.equal(tracks[1].enabled, true);
+  assert.equal(f.calls.length, 1);
+  await f.voice.stop();
+});
+
+test('denied microphone access on resume keeps the session paused', async () => {
+  let attempts = 0;
+  const track = {stop(){}, enabled:true};
+  const f = fixture({getUserMedia: async () => {
+    if (++attempts > 1) throw new Error('Permission denied');
+    return {getTracks:()=>[track], getAudioTracks:()=>[track]};
+  }});
+  await f.voice.start(); f.voice.channel.onopen(); f.voice.pause();
+  await assert.rejects(f.voice.restart(), /Permission denied/);
+  assert.equal(f.voice.isPaused, true);
+  assert.equal(f.voice.callId, 'call-123');
+  await f.voice.stop();
+});
+
+test('ending while resume requests the microphone stops the late stream', async () => {
+  let attempts = 0, finish;
+  const first = {stop(){}, enabled:true}, late = {stopped:false, stop(){this.stopped=true;}};
+  const stream = track => ({getTracks:()=>[track], getAudioTracks:()=>[track]});
+  const f = fixture({getUserMedia: () => ++attempts === 1 ? Promise.resolve(stream(first)) : new Promise(resolve => { finish=resolve; })});
+  await f.voice.start(); f.voice.channel.onopen(); f.voice.pause();
+  const resuming = f.voice.restart();
+  await new Promise(resolve => setImmediate(resolve));
+  await f.voice.stop(); finish(stream(late)); await resuming;
+  assert.equal(late.stopped, true);
+  assert.equal(f.voice.callId, null);
 });
 
 test('idle pause keeps the call and its context, then restarts without reconnecting', async () => {
@@ -358,6 +449,31 @@ test('does not pause while Mira is speaking and starts idle timer after playback
   await f.voice.stop();
 });
 
+test('releases microphone after a completed response even if playback never reports stopped', async () => {
+  const f = fixture(), states = []; f.voice.paused = value => states.push(value); f.voice.idleMs = 5;
+  await f.voice.start(); f.voice.channel.onopen();
+  await f.voice.receive({type:'response.created'});
+  await f.voice.receive({type:'output_audio_buffer.started'});
+  await f.voice.receive({type:'response.done', response:{status:'completed'}});
+  await new Promise(resolve => setTimeout(resolve, 20));
+  assert.deepEqual(states, [true]);
+  assert.equal(f.track.stopped, true);
+  assert.equal(f.audio.paused, true);
+  await f.voice.stop();
+});
+
+test('completed response does not start an idle pause during customer speech', async () => {
+  const f = fixture(), states = []; f.voice.paused = value => states.push(value); f.voice.idleMs = 5;
+  await f.voice.start();
+  await f.voice.receive({type:'response.created'});
+  await f.voice.receive({type:'input_audio_buffer.speech_started', item_id:'speaking'});
+  await f.voice.receive({type:'response.done', response:{status:'cancelled'}});
+  await new Promise(resolve => setTimeout(resolve, 20));
+  assert.deepEqual(states, []);
+  assert.equal(f.track.stopped, false);
+  await f.voice.stop();
+});
+
 test('late playback completion does not pause during customer speech', async () => {
   const f=fixture(), states=[]; f.voice.paused = value => states.push(value); f.voice.idleMs=5;
   await f.voice.start();
@@ -378,9 +494,18 @@ test('ending during failed-call cleanup does not offer restart', async () => {
   assert.deepEqual(states, []); assert.deepEqual(f.voice.history, []);
 });
 
-test('paused disconnected calls do not falsely report restart', async () => {
-  const f=fixture(); await f.voice.start(); f.voice.isPaused=true;
-  f.voice.peer.connectionState='disconnected';
-  await assert.rejects(f.voice.restart(), /recovering/);
-  assert.equal(f.voice.isPaused, true); await f.voice.stop();
+test('resume replaces a disconnected call and restores its conversation', async () => {
+  const f=fixture(); await f.voice.start(); f.voice.channel.onopen();
+  f.voice.history.push({role:'user', text:'Where is my order?'});
+  f.voice.pause();
+  const oldPeer = f.voice.peer;
+  oldPeer.connectionState='disconnected';
+  await f.voice.restart();
+  assert.equal(oldPeer.closed, true);
+  assert.notEqual(f.voice.peer, oldPeer);
+  assert.equal(f.voice.isPaused, false);
+  f.voice.channel.onopen();
+  assert.equal(f.sent.at(-1).item.content[0].text, 'Where is my order?');
+  assert.deepEqual(f.calls.map(call => call.options.method), ['POST', 'DELETE', 'POST']);
+  await f.voice.stop();
 });

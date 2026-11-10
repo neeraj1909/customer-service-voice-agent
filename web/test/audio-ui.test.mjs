@@ -7,7 +7,7 @@ function dom() {
   function element(id) {
     if (!elements.has(id)) elements.set(id, {id, value:'', textContent:'', disabled:false, files:[], children:[], src:'', attributes:{},
       setAttribute(name,value){this.attributes[name]=value;}, getAttribute(name){return this.attributes[name] ?? null;},
-      appendChild(node){this.children.push(node);}, replaceChildren(){this.children=[];}, focus(){}, pause(){this.paused=true;}, load(){},
+      appendChild(node){this.children.push(node);}, replaceChildren(){this.children=[];}, focus(){}, pause(){this.paused=true;}, async play(){this.paused=false;}, load(){},
       removeAttribute(name){if (name==='src') this.src='';}});
     return elements.get(id);
   }
@@ -185,7 +185,7 @@ test('the microphone control mutes and unmutes a live call', async () => {
   Object.defineProperty(globalThis, 'navigator', {configurable:true, value:{mediaDevices:{getUserMedia:async()=>({getTracks:()=>[track], getAudioTracks:()=>[track]})}}});
   globalThis.RTCPeerConnection = class {
     createDataChannel() { return {readyState:'open', close(){}}; }
-    addTrack() {}
+    addTrack() { return {replaceTrack:async()=>{}}; }
     async createOffer() { return {sdp:'offer'}; }
     async setLocalDescription(d) { this.localDescription=d; }
     async setRemoteDescription() {}
@@ -219,7 +219,7 @@ test('the pause control pauses and resumes a call without ending its customer se
   globalThis.RTCPeerConnection = class {
     constructor() { peer=this; this.connectionState='connected'; }
     createDataChannel() { return this.channel={readyState:'open', close(){}, send(){}}; }
-    addTrack() {}
+    addTrack() { return {replaceTrack:async()=>{}}; }
     async createOffer() { return {sdp:'offer'}; }
     async setLocalDescription(d) { this.localDescription=d; }
     async setRemoteDescription() {}

@@ -85,7 +85,7 @@ export class RealtimeVoice {
       peer.ontrack = ({streams}) => {
         if (generation !== this.generation || !streams?.[0]) return;
         this.audio.srcObject = streams[0];
-        Promise.resolve(this.audio.play()).catch(() => this.status('Playback blocked; use the audio controls.'));
+        if (!this.isPaused) Promise.resolve(this.audio.play()).catch(() => { if (generation === this.generation && !this.isPaused) this.status('Playback blocked; use the audio controls.'); });
       };
       peer.onconnectionstatechange = () => {
         if (generation !== this.generation) return;
@@ -107,7 +107,7 @@ export class RealtimeVoice {
         }
         if (peer.connectionState === 'disconnected') this.status('Voice connection interrupted; waiting for it to recover.');
       };
-      for (const track of stream.getAudioTracks()) peer.addTrack(track, stream);
+      for (const track of stream.getAudioTracks()) this.audioSender = peer.addTrack(track, stream);
       const offer = await peer.createOffer();
       await peer.setLocalDescription(offer);
       if (peer.iceGatheringState && peer.iceGatheringState !== 'complete') {
@@ -167,15 +167,17 @@ export class RealtimeVoice {
       this.status('Mira is responding.');
     }
     if (data.type === 'response.created' || data.type === 'output_audio_buffer.started' || data.type === 'response.output_audio_buffer.started') { this.assistantActive = true; this.clearIdle(); this.idleDeadline = null; }
+    if (data.type === 'response.done') this.armIdle(true);
     if (data.type === 'response.output_audio_transcript.done' && typeof data.response_id === 'string' && typeof data.transcript === 'string') this.outputTranscripts.set(data.response_id, data.transcript);
     if (data.type === 'output_audio_buffer.stopped') {
       this.assistantActive = false;
+      if (this.isPaused) this.audio.pause();
       const text = this.outputTranscripts.get(data.response_id);
       if (text) this.history.push({role:'assistant', text});
       this.outputTranscripts.delete(data.response_id);
       this.armIdle();
     }
-    if (data.type === 'output_audio_buffer.cleared') { this.assistantActive = false; this.outputTranscripts.delete(data.response_id); }
+    if (data.type === 'output_audio_buffer.cleared') { this.assistantActive = false; if (this.isPaused) this.audio.pause(); this.outputTranscripts.delete(data.response_id); }
     this.event(data);
     if (data.type === 'conversation.item.deleted') {
       this.deletions.get(data.item_id)?.(true);
@@ -285,6 +287,7 @@ export class RealtimeVoice {
     this.starting = false;
     if (this.channel) { this.channel.onmessage = null; this.channel.close(); this.channel = null; }
     if (this.peer) { this.peer.ontrack = null; this.peer.onconnectionstatechange = null; this.peer.close(); this.peer = null; }
+    this.audioSender = null;
     if (this.stream) { this.stream.getTracks().forEach(track => track.stop()); this.stream = null; }
     this.audio.pause();
     this.audio.srcObject = null;
@@ -302,40 +305,60 @@ export class RealtimeVoice {
 
   clearIdle() { clearTimeout(this.idleTimer); this.idleTimer = null; }
 
-  pause() {
+  pause(stopPlayback = false) {
     if (!this.stream || this.isPaused) return false;
     this.clearIdle();
     this.idleDeadline = null;
     this.isPaused = true;
-    this.stream.getAudioTracks().forEach(track => { track.enabled = false; });
-    this.status('Microphone paused. Mira will finish any current response. Select Resume to continue.');
+    this.stream.getAudioTracks().forEach(track => { track.enabled = false; track.stop(); });
+    if (stopPlayback || !this.assistantActive) this.audio.pause();
+    const sender = this.audioSender;
+    this.detachAudio = Promise.resolve().then(() => sender?.replaceTrack(null)).catch(() => {});
+    this.status('Microphone off. Mira will finish any current response. Select Resume to continue.');
     this.paused(true);
     return true;
   }
 
-  armIdle() {
+  armIdle(responseFinished = false) {
     this.clearIdle();
-    if (this.isPaused || !this.stream || this.userActive || this.assistantActive) return;
+    if (this.isPaused || !this.stream || this.userActive || (this.assistantActive && !responseFinished)) return;
     this.idleDeadline ??= Date.now() + this.idleMs;
     this.idleTimer = setTimeout(() => {
-      this.pause();
-      this.status('Voice paused after 30 seconds of inactivity. Select Resume to continue.');
+      this.pause(true);
+      this.status('Microphone off after 30 seconds of inactivity. Select Resume to continue.');
     }, Math.max(0, this.idleDeadline - Date.now()));
     this.idleTimer?.unref?.();
   }
 
   async restart() {
     if (!this.isPaused) return;
+    const generation = this.generation;
+    await this.detachAudio;
+    if (generation !== this.generation || this.endRequested || !this.isPaused) return;
     if (this.peer && (['disconnected', 'failed', 'closed'].includes(this.peer.connectionState) || this.channel?.readyState !== 'open')) {
-      throw new Error('The connection is still recovering. Please try Resume again.');
+      this.status('Reconnecting the voice session.');
+      await this.stop(true);
+      if (this.endRequested) return;
     }
     if (this.callId && !this.peer) await this.endServerCall();
     if (!this.peer) {
       this.isPaused = false;
       try { if (!await this.start() || this.endRequested) return; } catch (error) { if (!this.endRequested) this.isPaused = true; throw error; }
     } else {
+      const generation = this.generation;
+      const stream = await this.media.getUserMedia({audio: {echoCancellation: true, noiseSuppression: true}, video: false});
+      if (generation !== this.generation || this.endRequested) { stream.getTracks().forEach(track => track.stop()); return; }
+      const track = stream.getAudioTracks()[0];
+      try {
+        if (!track || !this.audioSender) throw new Error('Microphone or voice connection unavailable.');
+        track.enabled = false;
+        await this.audioSender.replaceTrack(track);
+        if (generation !== this.generation || this.endRequested) { stream.getTracks().forEach(track => track.stop()); return; }
+      } catch (error) { stream.getTracks().forEach(track => track.stop()); throw error; }
+      this.stream = stream;
       this.isPaused = false;
-      this.stream?.getAudioTracks().forEach(track => { track.enabled = !this.microphoneMuted; });
+      track.enabled = !this.microphoneMuted;
+      if (this.audio.srcObject) Promise.resolve(this.audio.play()).catch(() => { if (generation === this.generation && !this.isPaused) this.status('Playback blocked; use the audio controls.'); });
       this.status('Voice resumed.');
       this.armIdle();
     }
