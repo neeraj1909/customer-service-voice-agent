@@ -152,7 +152,15 @@ class OpenAIProvider:
         return call_id, answer
 
     def hangup(self, call_id):
-        self._request(f"https://api.openai.com/v1/realtime/calls/{call_id}/hangup", b"")
+        try:
+            self._request(f"https://api.openai.com/v1/realtime/calls/{call_id}/hangup", b"")
+        except urllib.error.HTTPError as exc:
+            try:
+                error = json.loads(exc.read(4096)).get("error", {})
+            except (ValueError, AttributeError):
+                raise exc
+            if exc.code != 404 or error.get("code") != "call_id_not_found":
+                raise
 
 
 class VoiceCalls:

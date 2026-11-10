@@ -183,3 +183,33 @@ def test_expired_call_cleanup_keeps_retrying_until_provider_confirms(monkeypatch
         assert call_id not in calls.calls
 
     asyncio.run(exercise())
+
+
+def test_provider_hangup_accepts_only_explicit_missing_call(monkeypatch):
+    import io
+    import urllib.error
+
+    from customer_service.realtime import OpenAIProvider
+
+    provider = OpenAIProvider("test")
+
+    def missing(*_args):
+        raise urllib.error.HTTPError(
+            "https://api.openai.com",
+            404,
+            "missing",
+            {},
+            io.BytesIO(b'{"error":{"code":"call_id_not_found"}}'),
+        )
+
+    monkeypatch.setattr(provider, "_request", missing)
+    provider.hangup("call_1")
+
+    def unknown(*_args):
+        raise urllib.error.HTTPError(
+            "https://api.openai.com", 404, "missing", {}, io.BytesIO(b'{"error":{"code":"other"}}')
+        )
+
+    monkeypatch.setattr(provider, "_request", unknown)
+    with pytest.raises(urllib.error.HTTPError):
+        provider.hangup("call_1")
