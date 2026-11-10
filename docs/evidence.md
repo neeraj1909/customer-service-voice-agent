@@ -1,5 +1,11 @@
 # Evidence: controlled text evaluation
 
+## Manual microphone pause and noise continuation
+
+The call's Pause/Resume control is below the voice status. Pausing disables outgoing microphone audio while allowing an answer already in progress to finish; Resume restores the microphone or attempts to reconnect the existing fictional customer session. The existing inactivity timer pauses the microphone after 30 seconds when the user and assistant are inactive.
+
+When speech is detected during an assistant response and the subsequent transcript is classified as noise, the client asks the model for one brief contextual reminder and to continue in the current language. Noise without an interrupted answer does not request a response. This is a custom best-effort OpenAI WebRTC flow, not LiveKit adaptive interruption handling. It cannot know the exact last sentence heard; a classifier can also mistake speech for noise or vice versa. A real microphone, noisy environment and audible playback test remains necessary to assess the user experience.
+
 ## Idle pause, restart and responsive setup (2026-11-10)
 
 A 30-second inactivity pause disables the outgoing microphone without ending the active provider call. Restart resumes that connection. Following a failed connection, Restart opens a replacement provider call in the same fictional customer session and replays approved user text and completed assistant audio transcripts held by the page; incomplete speech, exact tool state and history after a reload are not recovered. The provider call still has the five-minute lifetime. Tests cover idle/playback and speech overlap, cleanup/End races and an unavailable connection.
