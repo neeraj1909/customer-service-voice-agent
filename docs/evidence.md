@@ -1,5 +1,13 @@
 # Evidence: controlled text evaluation
 
+## Idle pause, restart and responsive setup (2026-11-10)
+
+A 30-second inactivity pause disables the outgoing microphone without ending the active provider call. Restart resumes that connection. Following a failed connection, Restart opens a replacement provider call in the same fictional customer session and replays approved user text and completed assistant audio transcripts held by the page; incomplete speech, exact tool state and history after a reload are not recovered. The provider call still has the five-minute lifetime. Tests cover idle/playback and speech overlap, cleanup/End races and an unavailable connection.
+
+A CDP browser with simulated media and a shortened timer connected to the real provider: pause and restart kept the same call, then a replacement call recalled a prior `ord-a-201` request. The provider returned a completed audio transcript with no error; this did not test microphone sound, audible playback or the cause of the user's earlier disconnect. During a separate cleanup attempt, the provider returned 404 with `call_id_not_found`; the adapter now accepts that specific response as absence while preserving failure handling for other errors.
+
+Responsive browser checks at 390px and 960px placed customer setup and suggestions above the voice card; at 1440px the desktop side-by-side layout remained. No horizontal overflow was observed at those widths. Final checks: 47 Python tests, 49 Node tests, Ruff, and controlled browser/service end-to-end scenarios passed. A real 30-second silence and restart test with the user's microphone remains open.
+
 ## Five-order response and noise controls (2026-11-09)
 
 The user reported that Asha's five-order response stopped during the second order and changed languages. Server HTTP logs show an order-history request but do not identify whether the response was interrupted, reached a token limit, or encountered another failure. The previous 512-token output limit was a possible cause; it is now 2048, which may increase provider usage. The browser surfaces documented provider cancellation and token-limit reasons when received, but cannot recover events that were never observed.
