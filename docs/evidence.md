@@ -1,5 +1,23 @@
 # Evidence: controlled text evaluation
 
+## Playback clock during pause (2026-11-11)
+
+The playback element is paused when an idle pause occurs, in addition to stopping and detaching the microphone track. Manual pause allows an active response to finish. If automatic pause occurs while a live answer is still playing, playback stops and missed live audio is not buffered for replay. Resume attempts to restart playback and reports browser autoplay rejection.
+
+A CDP-driven Chrome test with a synthetic live audio stream measured its playback clock advancing from 0.22 to 2.22 seconds while playing and remaining at 8.82 seconds over two seconds while paused. This measured the media element independently; a live provider call during this check could not start because the demo call limit was reached. The user confirmed that the laptop playback timer stops after hard refresh and idle pause. Microphone indicator and post-resume audible behavior remain separate checks.
+
+## Idle timer after a response (2026-11-11)
+
+The customer reported that the button displayed Resume, Mira did not answer during pause, and the audio-control clock continued to advance. The HTML audio element is the incoming playback control, not a microphone recorder; it is now labeled accordingly. Stopping a microphone track releases that track but does not establish the state of other browser tabs or applications using the device.
+
+A live-provider CDP run with synthetic audio found that the playback buffer stop event arrived around 16 seconds after response generation completed. The idle timer now also starts when the response is done, so a missing or delayed playback event does not indefinitely retain microphone capture. A later run confirmed the synthetic microphone track reached `ended` and the WebRTC sender had no track after the timer; Resume attached a fresh live track. Physical laptop microphone release and audible behavior remain user-side checks.
+
+## Microphone release and reconnect (2026-11-11)
+
+Pause now stops the microphone track and detaches it from the WebRTC sender, rather than only disabling it. Resume reacquires the microphone and attaches a new track to an intact call; if the connection is already disconnected, it closes the old call and creates a replacement in the same fictional customer session. A denied microphone request leaves the session paused.
+
+A CDP browser using simulated audio connected to the real provider. Manual and automatic pause ended the simulated audio track; Resume attached a live track on the same call. After deliberately closing the paused peer, Resume connected a replacement call under the same customer session. This does not prove behavior with the laptop microphone, real network failure, audible playback, or complete recovery of interrupted speech.
+
 ## Manual microphone pause and noise continuation
 
 The call's Pause/Resume control is below the voice status. Pausing disables outgoing microphone audio while allowing an answer already in progress to finish; Resume restores the microphone or attempts to reconnect the existing fictional customer session. The existing inactivity timer pauses the microphone after 30 seconds when the user and assistant are inactive.
