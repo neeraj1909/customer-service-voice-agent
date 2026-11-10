@@ -136,7 +136,7 @@ test('customer session cannot be changed from the UI while live voice is active'
   }
 });
 
-test('a failed voice connection lets the user start a new call', async () => {
+test('a failed voice connection offers restart in the existing customer session', async () => {
   const {element, document} = dom();
   globalThis.document = document;
   const oldNavigator = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
@@ -159,10 +159,12 @@ test('a failed voice connection lets the user start a new call', async () => {
     await element('start').onclick();
     await element('voice-start').onclick();
     peer.connectionState='failed'; peer.onconnectionstatechange();
-    for (let i=0; i<10 && element('voice-start').disabled; i++) await new Promise(resolve=>setImmediate(resolve));
-    assert.equal(element('voice-start').disabled, false);
-    assert.equal(element('voice-stop').disabled, true);
-    assert.match(element('voice-status').textContent, /Start a new call/);
+    for (let i=0; i<10 && element('voice-restart').hidden !== false; i++) await new Promise(resolve=>setImmediate(resolve));
+    assert.equal(element('voice-start').disabled, true);
+    assert.equal(element('voice-stop').disabled, false);
+    assert.equal(element('voice-restart').hidden, false);
+    assert.match(element('voice-status').textContent, /Restart/);
+    await element('voice-stop').onclick();
   } finally {
     if (oldNavigator) Object.defineProperty(globalThis, 'navigator', oldNavigator); else delete globalThis.navigator;
     if (oldPeer) globalThis.RTCPeerConnection = oldPeer; else delete globalThis.RTCPeerConnection;

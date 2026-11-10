@@ -39,20 +39,20 @@ test('connects with a scoped session and releases microphone and server call', a
   assert.equal(f.calls[1].options.headers['X-Session'], 'session-1');
 });
 
-test('a failed connection closes the call and releases the UI for retry', async () => {
-  const f = fixture(), ended = [], statuses = [];
-  f.voice.ended = closed => ended.push(closed);
+test('a failed connection closes the call and offers restart', async () => {
+  const f = fixture(), paused = [], statuses = [];
+  f.voice.paused = value => paused.push(value);
   f.voice.status = message => statuses.push(message);
   await f.voice.start();
   const peer = f.voice.peer;
   peer.connectionState = 'disconnected'; peer.onconnectionstatechange();
   assert.match(statuses.at(-1), /waiting/);
   peer.connectionState = 'failed'; peer.onconnectionstatechange();
-  for (let i = 0; i < 10 && !ended.length; i++) await new Promise(resolve => setImmediate(resolve));
-  assert.deepEqual(ended, [true]);
+  for (let i = 0; i < 10 && !paused.length; i++) await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(paused, [true]);
   assert.equal(f.track.stopped, true);
   assert.equal(f.calls.at(-1).url, '/api/realtime/call/call-123');
-  assert.match(statuses.at(-1), /Start a new call/);
+  assert.match(statuses.at(-1), /Restart/);
 });
 
 test('failed cleanup keeps the End call recovery path available', async () => {
@@ -266,4 +266,69 @@ test('an empty transcription can resume an interrupted answer without a model ch
   assert.match(f.sent[1].item.content[0].text, /continue/);
   assert.equal(f.sent[2].type, 'response.create');
   await f.voice.stop();
+});
+
+test('idle pause keeps the call and its context, then restarts without reconnecting', async () => {
+  const f = fixture(), states = []; f.voice.paused = value => states.push(value); f.voice.idleMs = 5;
+  await f.voice.start(); f.voice.history.push({role:'user',text:'Where is my order?'});
+  f.voice.armIdle(); await new Promise(resolve => setTimeout(resolve, 15));
+  assert.deepEqual(states, [true]); assert.equal(f.track.enabled, false);
+  assert.equal(f.voice.callId, 'call-123');
+  await f.voice.restart();
+  assert.equal(f.track.enabled, true); assert.deepEqual(states, [true, false]);
+  assert.deepEqual(f.voice.history, [{role:'user',text:'Where is my order?'}]);
+  assert.equal(f.calls.length, 1);
+  await f.voice.stop();
+});
+
+test('reconnect restores approved turns and played answers but not interrupted audio', async () => {
+  const f = fixture(), paused=[]; f.voice.paused = value => paused.push(value);
+  await f.voice.start();
+  f.voice.history.push({role:'user',text:'Where is my order?'});
+  await f.voice.receive({type:'response.output_audio_transcript.done',response_id:'r1',transcript:'It has shipped.'});
+  await f.voice.receive({type:'output_audio_buffer.stopped',response_id:'r1'});
+  await f.voice.receive({type:'response.output_audio_transcript.done',response_id:'r2',transcript:'Not fully heard.'});
+  f.voice.peer.connectionState = 'failed'; f.voice.peer.onconnectionstatechange();
+  for (let i=0;i<10 && !paused.length;i++) await new Promise(resolve => setImmediate(resolve));
+  await f.voice.restart(); f.voice.channel.onopen();
+  assert.deepEqual(f.sent.map(x => x.item?.content?.[0]?.text), ['Where is my order?', 'It has shipped.']);
+  assert.equal(f.sent[1].item.content[0].type, 'output_text');
+  await f.voice.stop();
+});
+
+test('does not pause while Mira is speaking and starts idle timer after playback ends', async () => {
+  const f=fixture(), states=[]; f.voice.paused = value => states.push(value); f.voice.idleMs=5;
+  await f.voice.start(); f.voice.armIdle();
+  await f.voice.receive({type:'output_audio_buffer.started'});
+  await new Promise(resolve=>setTimeout(resolve,15)); assert.deepEqual(states, []);
+  await f.voice.receive({type:'output_audio_buffer.stopped',response_id:'r'});
+  await new Promise(resolve=>setTimeout(resolve,15)); assert.deepEqual(states, [true]);
+  await f.voice.stop();
+});
+
+test('late playback completion does not pause during customer speech', async () => {
+  const f=fixture(), states=[]; f.voice.paused = value => states.push(value); f.voice.idleMs=5;
+  await f.voice.start();
+  await f.voice.receive({type:'input_audio_buffer.speech_started',item_id:'long'});
+  await f.voice.receive({type:'output_audio_buffer.stopped',response_id:'previous'});
+  await new Promise(resolve=>setTimeout(resolve,15)); assert.deepEqual(states, []);
+  await f.voice.stop();
+});
+
+test('ending during failed-call cleanup does not offer restart', async () => {
+  const f=fixture(), states=[]; f.voice.paused = value => states.push(value);
+  await f.voice.start(); let finish;
+  f.voice.fetchImpl = () => new Promise(resolve => { finish=resolve; });
+  f.voice.history.push({role:'user',text:'my order'});
+  f.voice.peer.connectionState='failed'; f.voice.peer.onconnectionstatechange();
+  const stop=f.voice.stop(); finish({ok:true}); await stop;
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.deepEqual(states, []); assert.deepEqual(f.voice.history, []);
+});
+
+test('paused disconnected calls do not falsely report restart', async () => {
+  const f=fixture(); await f.voice.start(); f.voice.isPaused=true;
+  f.voice.peer.connectionState='disconnected';
+  await assert.rejects(f.voice.restart(), /recovering/);
+  assert.equal(f.voice.isPaused, true); await f.voice.stop();
 });

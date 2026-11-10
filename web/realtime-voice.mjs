@@ -16,10 +16,10 @@ function normalizeOrderId(value) {
 // Browser-side WebRTC voice transport. The server supplies the SDP answer;
 // provider credentials remain on the server. Only read-only tools are exposed.
 export class RealtimeVoice {
-  constructor({session, request, audio, language = 'auto', status = () => {}, event = () => {}, ended = () => {},
+  constructor({session, request, audio, language = 'auto', status = () => {}, event = () => {}, ended = () => {}, paused = () => {},
     media = globalThis.navigator?.mediaDevices, Peer = globalThis.RTCPeerConnection,
     fetchImpl = globalThis.fetch?.bind(globalThis)} = {}) {
-    Object.assign(this, {session, request, audio, language, status, event, ended, media, Peer, fetchImpl});
+    Object.assign(this, {session, request, audio, language, status, event, ended, paused, media, Peer, fetchImpl});
     this.generation = 0;
     this.callId = null;
     this.pendingStart = null;
@@ -34,6 +34,15 @@ export class RealtimeVoice {
     this.uncheckedItems = new Set();
     this.lastApproved = '';
     this.deletions = new Map();
+    this.history = [];
+    this.outputTranscripts = new Map();
+    this.idleTimer = null;
+    this.isPaused = false;
+    this.microphoneMuted = false;
+    this.idleMs = 30000;
+    this.userActive = false;
+    this.assistantActive = false;
+    this.endRequested = false;
   }
 
   start() {
@@ -54,6 +63,7 @@ export class RealtimeVoice {
       const stream = await this.media.getUserMedia({audio: {echoCancellation: true, noiseSuppression: true}, video: false});
       if (generation !== this.generation) { stream.getTracks().forEach(track => track.stop()); return false; }
       this.stream = stream;
+      stream.getAudioTracks().forEach(track => { track.enabled = false; });
       const peer = new this.Peer();
       this.peer = peer;
       const channel = peer.createDataChannel('oai-events');
@@ -62,6 +72,8 @@ export class RealtimeVoice {
         if (generation !== this.generation) return;
         const names = {en:'English', hi:'Hindi', hinglish:'Hinglish'};
         if (Object.hasOwn(names, this.language)) channel.send(JSON.stringify({type:'conversation.item.create', item:{type:'message', role:'user', content:[{type:'input_text', text:`For this call, please reply in ${names[this.language]}.`}]}}));
+        for (const entry of this.history) channel.send(JSON.stringify({type:'conversation.item.create', item:{type:'message', role:entry.role, content:[{type:entry.role === 'user' ? 'input_text' : 'output_text', text:entry.text}]}}));
+        stream.getAudioTracks().forEach(track => { track.enabled = !this.microphoneMuted && !this.isPaused; });
       };
       channel.onmessage = ({data}) => {
         if (generation !== this.generation) return;
@@ -75,14 +87,19 @@ export class RealtimeVoice {
       };
       peer.onconnectionstatechange = () => {
         if (generation !== this.generation) return;
-        if (peer.connectionState === 'connected') this.status('Connected. Speak to the assistant.');
+        if (peer.connectionState === 'connected') { this.status('Connected. Speak to the assistant.'); this.armIdle(); }
         if (peer.connectionState === 'failed') {
           this.status('Voice connection failed. Closing the call.');
-          void this.stop().then(() => {
-            this.status('Voice connection failed. Start a new call to reconnect.');
-            this.ended(true);
+          void this.stop(true).then(() => {
+            if (this.endRequested) return;
+            this.isPaused = true;
+            this.status('Voice connection interrupted. Select Restart to continue this session.');
+            this.paused(true);
           }).catch(() => {
-            this.status('Could not confirm the server call ended. Try End again.');
+            if (this.endRequested) return;
+            this.isPaused = true;
+            this.status('Could not confirm the previous connection ended. Select Restart to retry.');
+            this.paused(true);
             this.ended(false);
           });
         }
@@ -129,6 +146,8 @@ export class RealtimeVoice {
   async receive(data, generation = this.generation) {
     if (!data || typeof data.type !== 'string') return;
     if (data.type === 'input_audio_buffer.speech_started') {
+      this.userActive = true;
+      this.clearIdle();
       this.turn++;
       if (typeof data.item_id === 'string') {
         this.itemTurns.set(data.item_id, this.turn);
@@ -143,6 +162,16 @@ export class RealtimeVoice {
     else if (data.type === 'output_audio_buffer.started' || data.type === 'response.output_audio_buffer.started') {
       this.status('Mira is responding.');
     }
+    if (data.type === 'response.created' || data.type === 'output_audio_buffer.started') { this.assistantActive = true; this.clearIdle(); }
+    if (data.type === 'response.output_audio_transcript.done' && typeof data.response_id === 'string' && typeof data.transcript === 'string') this.outputTranscripts.set(data.response_id, data.transcript);
+    if (data.type === 'output_audio_buffer.stopped') {
+      this.assistantActive = false;
+      const text = this.outputTranscripts.get(data.response_id);
+      if (text) this.history.push({role:'assistant', text});
+      this.outputTranscripts.delete(data.response_id);
+      this.armIdle();
+    }
+    if (data.type === 'output_audio_buffer.cleared') { this.assistantActive = false; this.outputTranscripts.delete(data.response_id); }
     this.event(data);
     if (data.type === 'conversation.item.deleted') {
       this.deletions.get(data.item_id)?.(true);
@@ -211,7 +240,8 @@ export class RealtimeVoice {
       return;
     }
     this.uncheckedItems.delete(itemId);
-    if (turn !== this.turn) return;
+    this.userActive = this.uncheckedItems.size > 0;
+    if (turn !== this.turn) { this.armIdle(); return; }
     if (this.uncheckedItems.size) {
       this.status('Overlapping speech could not be checked safely. Please repeat your request.');
       return;
@@ -219,6 +249,7 @@ export class RealtimeVoice {
     if (!result || !['allow', 'redirect', 'clarify', 'noise'].includes(result.decision) ||
         (result.decision === 'allow' && (typeof result.safe_text !== 'string' || !result.safe_text.trim()))) {
       this.status('The request could not be checked. Please try again.');
+      this.armIdle();
       return;
     }
     const messages = {
@@ -229,7 +260,7 @@ export class RealtimeVoice {
     const languages = {en:'English', hi:'Hindi', hinglish:'Hinglish'};
     const languageHint = Object.hasOwn(languages, result.language) ? ` The last utterance was in ${languages[result.language]}; respect any ongoing language preference, otherwise respond in that language.` : '';
     const text = result.decision === 'allow' ? result.safe_text : messages[result.decision] + languageHint;
-    if (result.decision === 'allow') this.lastApproved = text;
+    if (result.decision === 'allow') { this.lastApproved = text; this.history.push({role:'user', text}); }
     this.approvedTurn = turn;
     this.channel.send(JSON.stringify({type:'conversation.item.create', item:{type:'message', role:'user', content:[{type:'input_text', text}]}}));
     this.channel.send(JSON.stringify({type:'response.create'}));
@@ -237,6 +268,7 @@ export class RealtimeVoice {
   }
 
   closeLocal() {
+    this.clearIdle();
     this.generation++;
     this.starting = false;
     if (this.channel) { this.channel.onmessage = null; this.channel.close(); this.channel = null; }
@@ -247,15 +279,50 @@ export class RealtimeVoice {
     this.audio.muted = false;
     this.seenCalls.clear();
     for (const resolve of this.deletions.values()) resolve(false);
-    this.lastApproved = '';
     this.approvedTurn = null;
     this.itemTurns.clear();
     this.uncheckedItems.clear();
+    this.outputTranscripts.clear();
+    this.userActive = false;
+    this.assistantActive = false;
+  }
+
+  clearIdle() { clearTimeout(this.idleTimer); this.idleTimer = null; }
+
+  armIdle() {
+    this.clearIdle();
+    if (this.isPaused || !this.stream || this.userActive || this.assistantActive) return;
+    this.idleTimer = setTimeout(() => {
+      this.isPaused = true;
+      this.stream?.getAudioTracks().forEach(track => { track.enabled = false; });
+      this.status('Voice paused after 30 seconds of inactivity. Select Restart to continue.');
+      this.paused(true);
+    }, this.idleMs);
+    this.idleTimer?.unref?.();
+  }
+
+  async restart() {
+    if (!this.isPaused) return;
+    if (this.peer && (['disconnected', 'failed', 'closed'].includes(this.peer.connectionState) || this.channel?.readyState !== 'open')) {
+      throw new Error('The connection is still recovering. Please try Restart again.');
+    }
+    if (this.callId && !this.peer) await this.endServerCall();
+    if (!this.peer) {
+      this.isPaused = false;
+      try { if (!await this.start() || this.endRequested) return; } catch (error) { if (!this.endRequested) this.isPaused = true; throw error; }
+    } else {
+      this.isPaused = false;
+      this.stream?.getAudioTracks().forEach(track => { track.enabled = !this.microphoneMuted; });
+      this.status('Voice resumed.');
+      this.armIdle();
+    }
+    this.paused(false);
   }
 
   setMicrophoneMuted(muted) {
     if (!this.stream) return false;
-    this.stream.getAudioTracks().forEach(track => { track.enabled = !muted; });
+    this.microphoneMuted = muted;
+    this.stream.getAudioTracks().forEach(track => { track.enabled = !muted && !this.isPaused && this.channel?.readyState === 'open'; });
     return true;
   }
 
@@ -269,12 +336,14 @@ export class RealtimeVoice {
     if (this.callId === id) this.callId = null;
   }
 
-  stop() {
-    if (this.stopPromise) return this.stopPromise;
+  stop(preserveHistory = false) {
+    if (!preserveHistory) this.endRequested = true;
+    if (this.stopPromise) return preserveHistory ? this.stopPromise : this.stopPromise.then(() => { this.history = []; this.lastApproved = ''; this.isPaused = false; });
     const stopping = (async () => {
       this.closeLocal();
       if (this.pendingStart) { try { await this.pendingStart; } catch { /* cleanup below */ } }
       await this.endServerCall();
+      if (!preserveHistory) { this.history = []; this.lastApproved = ''; this.isPaused = false; }
     })();
     this.stopPromise = stopping;
     return stopping.finally(() => { if (this.stopPromise === stopping) this.stopPromise = null; });
