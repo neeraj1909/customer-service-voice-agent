@@ -3,7 +3,11 @@ name = "multilingual-customer-service-voice-agent"
 version = "0.1.0"
 description = "A controlled fictional customer service demo"
 requires-python = ">=3.11"
-dependencies = ["fastapi>=0.115,<1", "uvicorn>=0.30,<1"]
+dependencies = [
+    "fastapi>=0.115,<1",
+    "uvicorn>=0.30,<1",
+    "websockets>=15,<17",
+]
 
 [dependency-groups]
 dev = ["httpx>=0.27,<1", "pytest==8.4.2", "ruff>=0.9,<1"]
