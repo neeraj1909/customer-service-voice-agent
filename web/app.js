@@ -1,5 +1,7 @@
 import { Conversation, createRequest, clearPlayback, orderExamples } from './conversation.mjs';
 import { RealtimeVoice } from './realtime-voice.mjs';
+import { LiveVoice } from './live-voice.mjs';
+import { VoiceMetrics } from './voice-metrics.mjs';
 let session = '', proposal = null, changeKey = '', handoffPending = null;
 const $ = id => document.getElementById(id);
 const result = value => { $('result').textContent = typeof value === 'string' ? value : JSON.stringify(value, null, 2); };
@@ -8,19 +10,47 @@ function clearProposal() { proposal = null; changeKey = ''; $('confirm').disable
 let activeRequests = 0;
 function setBusy(change) { activeRequests += change; $('customer').disabled = activeRequests > 0; $('start').disabled = activeRequests > 0; }
 let voice = null, voiceBusy = false;
+const voiceRecords = [], voiceRecordCounts = new Map();
+const measureControls = ['voice-measure-begin','voice-measure-end-speech','voice-measure-audible','voice-measure-useful','voice-measure-finish','voice-measure-timeout','voice-measure-error'];
+function disableMeasureControls() { for (const id of measureControls) $(id).disabled = true; }
 const voiceStatus = message => { $('voice-status').textContent = message; };
 function releaseVoiceBusy() { if (voiceBusy) { voiceBusy = false; setBusy(-1); } }
-function resetVoiceControls() { $('voice-restart').hidden = true; $('voice-restart').textContent = 'Pause'; $('voice-mute').disabled = true; $('voice-mute').textContent = 'Mute microphone'; $('voice-mute').setAttribute('aria-pressed', 'false'); $('voice-language').disabled = false; }
+function resetVoiceControls() { $('voice-restart').hidden = true; $('voice-restart').textContent = 'Pause'; $('voice-mute').disabled = true; $('voice-mute').textContent = 'Mute microphone'; $('voice-mute').setAttribute('aria-pressed', 'false'); $('voice-language').disabled = false; $('voice-mode').disabled = false; for (const id of ['voice-metrics','voice-case-id','voice-run-id']) $(id).disabled = false; disableMeasureControls(); }
 $('voice-start').onclick = async () => {
   if (!session) { voiceStatus('Start a fictional customer session first.'); return; }
   if (voiceBusy || voice?.callId) return;
+  const arm = $('voice-mode').value === 'live' ? 'live' : 'baseline';
+  const capture = $('voice-metrics').checked, caseId = $('voice-case-id').value.trim(), runId = $('voice-run-id').value.trim();
+  if (capture && (![caseId, runId].every(id => /^[A-Za-z0-9_-]{1,40}$/.test(id)))) { voiceStatus('For timing capture, enter case and run IDs using letters, numbers, hyphens or underscores.'); return; }
   voiceBusy = true; setBusy(1);
-  $('voice-start').disabled = true; $('voice-stop').disabled = false; $('voice-language').disabled = true;
-  voice = new RealtimeVoice({session, request:call, audio:$('voice-playback'), language:$('voice-language').value, status:voiceStatus,
+  $('voice-start').disabled = true; $('voice-stop').disabled = false; $('voice-language').disabled = true; $('voice-mode').disabled = true;
+  for (const id of ['voice-metrics','voice-case-id','voice-run-id']) $(id).disabled = true;
+  const Voice = arm === 'live' ? LiveVoice : RealtimeVoice;
+  const metric = record => {
+    const type = record.measurement === 'operator_estimated' ? 'manual' : 'auto';
+    const key = `${arm}:${caseId}:${runId}:${type}`;
+    const sequence = (voiceRecordCounts.get(key) ?? 0) + 1;
+    voiceRecordCounts.set(key, sequence);
+    voiceRecords.push({...record, case_id:caseId, run_id:`${runId}-${type}-${sequence}`, quality:{scope:'unreviewed', task:'unreviewed'}});
+    $('voice-export').disabled = false;
+  };
+  voice = new Voice({session, request:call, audio:$('voice-playback'), language:$('voice-language').value, status:voiceStatus, metrics:capture ? new VoiceMetrics(arm) : null, metric,
     paused: isPaused => { $('voice-restart').textContent = isPaused ? 'Resume' : 'Pause'; $('voice-mute').disabled = isPaused; },
     ended: closed => { if (closed) { releaseVoiceBusy(); resetVoiceControls(); $('voice-stop').disabled = true; $('voice-start').disabled = false; } else $('voice-stop').disabled = false; }});
-  try { if (await voice.start()) { $('voice-mute').disabled = voice.isPaused; $('voice-restart').textContent = voice.isPaused ? 'Resume' : 'Pause'; $('voice-restart').hidden = false; } }
+  try { if (await voice.start()) { $('voice-mute').disabled = voice.isPaused; $('voice-restart').textContent = voice.isPaused ? 'Resume' : 'Pause'; $('voice-restart').hidden = false; $('voice-measure-begin').disabled = !capture; } }
   catch (error) { voiceStatus(`Voice could not start: ${error.message}`); if (!voice.callId) { releaseVoiceBusy(); resetVoiceControls(); $('voice-stop').disabled = true; $('voice-start').disabled = false; } }
+};
+$('voice-measure-begin').onclick = () => { if (voice?.beginMeasurement()) { disableMeasureControls(); $('voice-measure-end-speech').disabled = false; $('voice-measure-timeout').disabled = false; $('voice-measure-error').disabled = false; } };
+$('voice-measure-end-speech').onclick = () => { if (voice?.markMeasurement('utterance_end')) { $('voice-measure-end-speech').disabled = true; $('voice-measure-audible').disabled = false; } };
+$('voice-measure-audible').onclick = () => { if (voice?.markMeasurement('first_audible')) { $('voice-measure-audible').disabled = true; $('voice-measure-useful').disabled = false; $('voice-measure-finish').disabled = false; } };
+$('voice-measure-useful').onclick = () => { if (voice?.markMeasurement('first_useful_audible')) $('voice-measure-useful').disabled = true; };
+$('voice-measure-finish').onclick = () => { voice?.finishMeasurement('success'); disableMeasureControls(); $('voice-measure-begin').disabled = false; };
+for (const outcome of ['timeout', 'error']) $(`voice-measure-${outcome}`).onclick = () => { voice?.finishMeasurement(outcome); disableMeasureControls(); $('voice-measure-begin').disabled = false; };
+$('voice-export').onclick = () => {
+  if (!voiceRecords.length) return;
+  const url = URL.createObjectURL(new Blob([JSON.stringify(voiceRecords, null, 2)], {type:'application/json'}));
+  const link = document.createElement('a'); link.href = url; link.download = 'mira-voice-timings.json'; link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 0);
 };
 $('voice-restart').onclick = async () => {
   $('voice-restart').disabled = true;

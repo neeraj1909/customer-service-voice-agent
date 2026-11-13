@@ -19,6 +19,19 @@ test('the voice pause control follows the assistant status', async () => {
   assert.match(html, /id="voice-status"[^>]*>[^<]*<\/p>\s*<button[^>]*id="voice-restart"/);
 });
 
+test('the voice comparison identifies the experimental guardrail difference', async () => {
+  const html = await readFile(new URL('../index.html', import.meta.url), 'utf8');
+  assert.match(html, /id="voice-mode"/);
+  assert.match(html, /GPT-Live experimental/);
+  assert.match(html, /does not run the baseline.s separate scope check/i);
+  assert.match(html, /may answer unrelated questions/i);
+});
+
+test('the voice comparison can opt in to timing capture', async () => {
+  const html = await readFile(new URL('../index.html', import.meta.url), 'utf8');
+  for (const id of ['voice-metrics', 'voice-case-id', 'voice-run-id', 'voice-export', 'voice-measure-begin', 'voice-measure-end-speech', 'voice-measure-audible', 'voice-measure-useful', 'voice-measure-finish']) assert.ok(html.includes(`id="${id}"`));
+});
+
 test('changing file and a failed transcription clear the old transcript and block copying', async () => {
   const {element, document} = dom();
   globalThis.document = document;
@@ -133,12 +146,78 @@ test('customer session cannot be changed from the UI while live voice is active'
     await element('voice-start').onclick();
     assert.equal(element('start').disabled, true);
     assert.equal(element('customer').disabled, true);
+    assert.equal(element('voice-mode').disabled, true);
     await element('voice-stop').onclick();
     assert.equal(element('start').disabled, false);
     assert.equal(element('customer').disabled, false);
+    assert.equal(element('voice-mode').disabled, false);
   } finally {
     if (oldNavigator) Object.defineProperty(globalThis, 'navigator', oldNavigator); else delete globalThis.navigator;
     if (oldPeer) globalThis.RTCPeerConnection = oldPeer; else delete globalThis.RTCPeerConnection;
+  }
+});
+
+test('choosing GPT-Live starts the Live endpoint and locks the mode during the call', async () => {
+  const {element, document} = dom();
+  globalThis.document = document;
+  const oldNavigator = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
+  const oldPeer = globalThis.RTCPeerConnection;
+  const requests = [];
+  const oldCreateObjectURL = URL.createObjectURL, oldRevokeObjectURL = URL.revokeObjectURL;
+  let exported;
+  URL.createObjectURL = blob => { exported = blob; return 'blob:metrics'; };
+  URL.revokeObjectURL = () => {};
+  document.createElement = () => ({click(){}});
+  Object.defineProperty(globalThis, 'navigator', {configurable:true, value:{mediaDevices:{getUserMedia:async()=>({getTracks:()=>[], getAudioTracks:()=>[]})}}});
+  globalThis.RTCPeerConnection = class {
+    createDataChannel() { return {readyState:'open', send(){}, close(){}}; }
+    async createOffer() { return {sdp:'offer'}; }
+    async setLocalDescription(d) { this.localDescription=d; }
+    async setRemoteDescription() {}
+    close() {}
+  };
+  globalThis.fetch = async (path, options = {}) => {
+    requests.push([path, options.method]);
+    if (path === '/api/sessions') return {ok:true, json:async()=>({session_id:'s', customer_id:'cust-a'})};
+    if (path === '/api/live/call') return {ok:true, headers:{get:()=> 'live-id'}, text:async()=> 'answer'};
+    return {ok:true};
+  };
+  try {
+    element('customer').value='cust-a'; element('voice-mode').value='live';
+    element('voice-metrics').checked=true; element('voice-case-id').value='order'; element('voice-run-id').value='run1';
+    await import('../app.js?live-mode-selection');
+    await element('start').onclick();
+    await element('voice-start').onclick();
+    assert.ok(requests.some(([path, method]) => path === '/api/live/call' && method === 'POST'));
+    assert.equal(element('voice-mode').disabled, true);
+    element('voice-measure-begin').onclick();
+    element('voice-measure-end-speech').onclick();
+    element('voice-measure-audible').onclick();
+    element('voice-measure-useful').onclick();
+    element('voice-measure-finish').onclick();
+    element('voice-measure-begin').onclick();
+    assert.equal(element('voice-measure-timeout').disabled, false);
+    element('voice-measure-timeout').onclick();
+    element('voice-measure-begin').onclick();
+    element('voice-measure-error').onclick();
+    assert.equal(element('voice-export').disabled, false);
+    element('voice-export').onclick();
+    const [record, timeout, error] = JSON.parse(await exported.text());
+    assert.equal(record.arm, 'live');
+    assert.equal(record.measurement, 'operator_estimated');
+    assert.equal(record.case_id, 'order');
+    assert.equal(record.run_id, 'run1-manual-1');
+    assert.ok(record.intervals_ms.utterance_end_to_first_useful_audible >= 0);
+    assert.equal(timeout.outcome, 'timeout');
+    assert.equal(timeout.intervals_ms.utterance_end_to_first_audible, null);
+    assert.equal(error.outcome, 'error');
+    assert.equal(error.intervals_ms.utterance_end_to_first_audible, null);
+    await element('voice-stop').onclick();
+    assert.equal(element('voice-mode').disabled, false);
+  } finally {
+    if (oldNavigator) Object.defineProperty(globalThis, 'navigator', oldNavigator); else delete globalThis.navigator;
+    if (oldPeer) globalThis.RTCPeerConnection = oldPeer; else delete globalThis.RTCPeerConnection;
+    URL.createObjectURL = oldCreateObjectURL; URL.revokeObjectURL = oldRevokeObjectURL;
   }
 });
 
