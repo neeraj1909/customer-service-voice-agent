@@ -1,6 +1,6 @@
 const SPOKEN_DIGITS = {zero: '0', one: '1', two: '2', three: '3', four: '4', five: '5', six: '6', seven: '7', eight: '8', nine: '9'};
 
-function normalizeOrderId(value) {
+export function normalizeOrderId(value) {
   const words = value.trim().toLowerCase().replace(/\bdash\b/g, '-');
   const compact = /^ord[\s-]*([ab])[\s-]*(\d{1,3})$/.exec(words);
   if (compact) return `ord-${compact[1]}-${compact[2]}`;
@@ -16,10 +16,13 @@ function normalizeOrderId(value) {
 // Browser-side WebRTC voice transport. The server supplies the SDP answer;
 // provider credentials remain on the server. Only read-only tools are exposed.
 export class RealtimeVoice {
-  constructor({session, request, audio, language = 'auto', status = () => {}, event = () => {}, ended = () => {}, paused = () => {},
+  constructor({session, request, audio, language = 'auto', status = () => {}, event = () => {}, ended = () => {}, paused = () => {}, metrics = null, metric = () => {},
     media = globalThis.navigator?.mediaDevices, Peer = globalThis.RTCPeerConnection,
     fetchImpl = globalThis.fetch?.bind(globalThis)} = {}) {
-    Object.assign(this, {session, request, audio, language, status, event, ended, paused, media, Peer, fetchImpl});
+    Object.assign(this, {session, request, audio, language, status, event, ended, paused, metrics, metric, media, Peer, fetchImpl});
+    this.metricTurns = new Map();
+    this.metricResponses = new Map();
+    this.manualMetric = null;
     this.generation = 0;
     this.callId = null;
     this.pendingStart = null;
@@ -145,12 +148,52 @@ export class RealtimeVoice {
     }
   }
 
+  beginMeasurement() {
+    if (!this.metrics || this.manualMetric !== null) return false;
+    try { this.manualMetric = this.metrics.begin(); return true; } catch { return false; }
+  }
+
+  markMeasurement(event) {
+    if (this.manualMetric === null || !['utterance_end', 'first_audible', 'first_useful_audible'].includes(event)) return false;
+    try { return this.metrics.mark(this.manualMetric, event); } catch { return false; }
+  }
+
+  finishMeasurement(outcome) {
+    if (this.manualMetric === null || !['success', 'error', 'timeout', 'cancelled'].includes(outcome)) return false;
+    const id = this.manualMetric;
+    this.manualMetric = null;
+    try {
+      const record = this.metrics.finish(id, outcome);
+      if (!record) return false;
+      this.metric({...record, measurement: 'operator_estimated'});
+      return true;
+    } catch { return false; }
+  }
+
+  markMetric(turn, event) {
+    const id = this.metricTurns.get(turn);
+    if (id !== undefined) { try { this.metrics?.mark(id, event); } catch { /* measurement is optional */ } }
+  }
+
+  finishMetric(turn, outcome) {
+    const id = this.metricTurns.get(turn);
+    if (id === undefined) return;
+    this.metricTurns.delete(turn);
+    try {
+      const record = this.metrics?.finish(id, outcome);
+      if (record) this.metric(record);
+    } catch { /* measurement is optional */ }
+  }
+
   async receive(data, generation = this.generation) {
     if (!data || typeof data.type !== 'string') return;
     if (data.type === 'input_audio_buffer.speech_started') {
       this.userActive = true;
       this.clearIdle();
+      for (const turn of this.metricTurns.keys()) this.finishMetric(turn, 'cancelled');
+      this.metricResponses.clear();
       this.turn++;
+      if (this.metrics) { try { this.metricTurns.set(this.turn, this.metrics.begin()); } catch { /* measurement is optional */ } }
       if (typeof data.item_id === 'string') {
         this.itemTurns.set(data.item_id, this.turn);
         if (this.assistantActive) this.interruptedItems.add(data.item_id);
@@ -158,6 +201,7 @@ export class RealtimeVoice {
       }
       this.status('Listening.');
     } else if (data.type === 'input_audio_buffer.speech_stopped') {
+      this.markMetric(this.turn, 'vad_stopped');
       this.status('Processing your request.');
       if (!this.uncheckedItems.size) { this.userActive = false; this.armIdle(); }
     } else if (data.type === 'error') this.status('The voice service reported an error. Try again or restart the call.');
@@ -166,6 +210,8 @@ export class RealtimeVoice {
     else if (data.type === 'output_audio_buffer.started' || data.type === 'response.output_audio_buffer.started') {
       this.status('Mira is responding.');
     }
+    if (data.type === 'response.created' && typeof data.response?.id === 'string' && this.approvedTurn === this.turn) this.metricResponses.set(data.response.id, this.turn);
+    if (data.type === 'output_audio_buffer.started' || data.type === 'response.output_audio_buffer.started') this.markMetric(this.metricResponses.get(data.response_id), 'output_started');
     if (data.type === 'response.created' || data.type === 'output_audio_buffer.started' || data.type === 'response.output_audio_buffer.started') { this.assistantActive = true; this.clearIdle(); this.idleDeadline = null; }
     if (data.type === 'response.done') this.armIdle(true);
     if (data.type === 'response.output_audio_transcript.done' && typeof data.response_id === 'string' && typeof data.transcript === 'string') this.outputTranscripts.set(data.response_id, data.transcript);
@@ -175,9 +221,17 @@ export class RealtimeVoice {
       const text = this.outputTranscripts.get(data.response_id);
       if (text) this.history.push({role:'assistant', text});
       this.outputTranscripts.delete(data.response_id);
+      this.finishMetric(this.metricResponses.get(data.response_id), 'success');
+      this.metricResponses.delete(data.response_id);
       this.armIdle();
     }
-    if (data.type === 'output_audio_buffer.cleared') { this.assistantActive = false; if (this.isPaused) this.audio.pause(); this.outputTranscripts.delete(data.response_id); }
+    if (data.type === 'output_audio_buffer.cleared') {
+      this.assistantActive = false;
+      if (this.isPaused) this.audio.pause();
+      this.outputTranscripts.delete(data.response_id);
+      this.finishMetric(this.metricResponses.get(data.response_id), 'cancelled');
+      this.metricResponses.delete(data.response_id);
+    }
     this.event(data);
     if (data.type === 'conversation.item.deleted') {
       this.deletions.get(data.item_id)?.(true);
@@ -198,6 +252,8 @@ export class RealtimeVoice {
     if (typeof callId !== 'string' || !callId || this.seenCalls.has(callId)) return;
     this.seenCalls.add(callId);
     this.status('Checking your request.');
+    const toolTurn = this.approvedTurn;
+    this.markMetric(toolTurn, 'tool_request');
     let output;
     try {
       const args = JSON.parse(data.arguments);
@@ -215,6 +271,7 @@ export class RealtimeVoice {
         output = await this.request(field === 'order_id' ? '/api/order-details' : '/api/appointments/slots', {[field]: id});
       }
     } catch { output = {error: 'Tool request failed or was not permitted. No change was made.'}; }
+    this.markMetric(toolTurn, 'tool_result');
     if (generation !== this.generation || this.approvedTurn !== this.turn || this.channel?.readyState !== 'open') return;
     this.channel.send(JSON.stringify({type: 'conversation.item.create', item: {type: 'function_call_output', call_id: callId, output: JSON.stringify(output)}}));
     this.channel.send(JSON.stringify({type: 'response.create'}));
@@ -227,39 +284,50 @@ export class RealtimeVoice {
     const turn = this.itemTurns.get(itemId) ?? this.turn;
     this.itemTurns.delete(itemId);
     const interrupted = this.interruptedItems.delete(itemId);
+    if (!failed) this.markMetric(turn, 'transcript_complete');
     let result;
     try {
       if (failed) throw new Error('transcription failed');
       this.status('Checking your request.');
-      result = transcript.trim() ? await this.request('/api/realtime/scope', {transcript, context:this.lastApproved}) : {decision:'noise'};
+      if (transcript.trim()) {
+        this.markMetric(turn, 'scope_request');
+        result = await this.request('/api/realtime/scope', {transcript, context:this.lastApproved});
+        this.markMetric(turn, 'scope_result');
+      } else result = {decision:'noise'};
     } catch { /* remove the original turn and fail closed */ }
     if (generation !== this.generation || this.channel?.readyState !== 'open') return;
     const deleted = new Promise(resolve => {
       const timer = setTimeout(() => { this.deletions.delete(itemId); resolve(false); }, 5000);
       this.deletions.set(itemId, value => { clearTimeout(timer); this.deletions.delete(itemId); resolve(value); });
     });
+    this.markMetric(turn, 'delete_request');
     this.channel.send(JSON.stringify({type:'conversation.item.delete', item_id:itemId}));
     const removed = await deleted;
+    if (removed) this.markMetric(turn, 'delete_ack');
     if (generation !== this.generation || this.channel?.readyState !== 'open') return;
     if (!removed) {
+      this.finishMetric(turn, 'error');
       this.status('Could not safely process the turn. Closing the call.');
       try { await this.stop(); this.ended(true); } catch { this.ended(false); }
       return;
     }
     this.uncheckedItems.delete(itemId);
     this.userActive = this.uncheckedItems.size > 0;
-    if (turn !== this.turn) { this.armIdle(); return; }
+    if (turn !== this.turn) { this.finishMetric(turn, 'cancelled'); this.armIdle(); return; }
     if (this.uncheckedItems.size) {
+      this.finishMetric(turn, 'error');
       this.status('Overlapping speech could not be checked safely. Please repeat your request.');
       return;
     }
     if (!result || !['allow', 'redirect', 'clarify', 'noise'].includes(result.decision) ||
         (result.decision === 'allow' && (typeof result.safe_text !== 'string' || !result.safe_text.trim()))) {
+      this.finishMetric(turn, 'error');
       this.status('The request could not be checked. Please try again.');
       this.armIdle();
       return;
     }
     if (result.decision === 'noise' && !interrupted) {
+      this.finishMetric(turn, 'success');
       this.status('Listening.');
       this.armIdle();
       return;
@@ -275,6 +343,7 @@ export class RealtimeVoice {
     this.idleDeadline = null;
     if (result.decision === 'allow') { this.lastApproved = text; this.history.push({role:'user', text}); }
     this.approvedTurn = turn;
+    this.markMetric(turn, 'response_requested');
     this.channel.send(JSON.stringify({type:'conversation.item.create', item:{type:'message', role:'user', content:[{type:'input_text', text}]}}));
     this.channel.send(JSON.stringify({type:'response.create'}));
     this.status('Preparing a response.');
@@ -299,6 +368,9 @@ export class RealtimeVoice {
     this.interruptedItems.clear();
     this.uncheckedItems.clear();
     this.outputTranscripts.clear();
+    this.finishMeasurement('cancelled');
+    for (const turn of this.metricTurns.keys()) this.finishMetric(turn, 'cancelled');
+    this.metricResponses.clear();
     this.userActive = false;
     this.assistantActive = false;
   }

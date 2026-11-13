@@ -509,3 +509,53 @@ test('resume replaces a disconnected call and restores its conversation', async 
   assert.deepEqual(f.calls.map(call => call.options.method), ['POST', 'DELETE', 'POST']);
   await f.voice.stop();
 });
+
+test('opt-in measurements report only client-observed turn timings', async () => {
+  const {VoiceMetrics} = await import('../voice-metrics.mjs');
+  const f = fixture(), records = [];
+  let now = 0;
+  f.voice.metrics = new VoiceMetrics('baseline', () => now);
+  f.voice.metric = record => records.push(record);
+  f.voice.request = async () => ({decision:'allow', safe_text:'order ord-a-201'});
+  await f.voice.start();
+  await f.voice.receive({type:'input_audio_buffer.speech_started', item_id:'i1'});
+  now = 10; await f.voice.receive({type:'input_audio_buffer.speech_stopped'});
+  now = 30;
+  const check = f.voice.receive({type:'conversation.item.input_audio_transcription.completed', item_id:'i1', transcript:'order ord-a-201'});
+  await new Promise(resolve => setImmediate(resolve));
+  now = 45; await f.voice.receive({type:'conversation.item.deleted', item_id:'i1'});
+  await check;
+  now = 50; await f.voice.receive({type:'response.created', response:{id:'r1'}});
+  now = 70; await f.voice.receive({type:'output_audio_buffer.started', response_id:'r1'});
+  now = 90; await f.voice.receive({type:'output_audio_buffer.stopped', response_id:'r1'});
+  assert.equal(records.length, 1);
+  assert.equal(records[0].intervals_ms.vad_stop_to_transcript_complete, 20);
+  assert.equal(records[0].intervals_ms.response_request_to_output_started, 25);
+  assert.equal(records[0].intervals_ms.utterance_end_to_first_audible, null);
+  assert.equal(JSON.stringify(records).includes('ord-a-201'), false);
+  await f.voice.stop();
+});
+
+test('a new utterance records the interrupted attempt as cancelled', async () => {
+  const {VoiceMetrics} = await import('../voice-metrics.mjs');
+  const f = fixture(), records = [];
+  f.voice.metrics = new VoiceMetrics('baseline');
+  f.voice.metric = record => records.push(record);
+  await f.voice.start();
+  await f.voice.receive({type:'input_audio_buffer.speech_started', item_id:'i1'});
+  await f.voice.receive({type:'input_audio_buffer.speech_stopped'});
+  await f.voice.receive({type:'input_audio_buffer.speech_started', item_id:'i2'});
+  assert.equal(records.length, 1);
+  assert.equal(records[0].outcome, 'cancelled');
+  await f.voice.stop();
+  assert.equal(records[1].outcome, 'cancelled');
+});
+
+test('measurement failure does not prevent speech detection', async () => {
+  const f = fixture();
+  f.voice.metrics = {begin() { throw new Error('clock failed'); }};
+  await f.voice.start();
+  await f.voice.receive({type:'input_audio_buffer.speech_started', item_id:'i1'});
+  assert.equal(f.voice.userActive, true);
+  await f.voice.stop();
+});
