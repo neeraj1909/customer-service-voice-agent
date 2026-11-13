@@ -24,6 +24,7 @@ from .domain import (
     SessionRequest,
     SynthesisRequest,
 )
+from .live import LiveCalls
 from .realtime import MAX_SDP_BYTES, VoiceCalls
 from .scope import classify_scope
 from .tools import Store, ToolError
@@ -31,16 +32,18 @@ from .tools import Store, ToolError
 WEB = Path(__file__).resolve().parents[2] / "web"
 
 
-def create_app(db_path: Path | None = None, clock=time, realtime_provider=None):
+def create_app(db_path: Path | None = None, clock=time, realtime_provider=None, live_provider=None):
     path = Path(db_path or os.environ.get("DEMO_DB", "demo.sqlite3"))
     store = Store(path, clock)
     sessions: dict[str, str] = {}
     voice_calls = VoiceCalls(realtime_provider)
+    live_calls = LiveCalls(live_provider)
 
     @asynccontextmanager
     async def lifespan(_app):
         yield
         await voice_calls.close()
+        await live_calls.close()
 
     app = FastAPI(title="Fictional local customer service", lifespan=lifespan)
 
@@ -114,6 +117,14 @@ def create_app(db_path: Path | None = None, clock=time, realtime_provider=None):
     def realtime_voice_module():
         return FileResponse(WEB / "realtime-voice.mjs", media_type="text/javascript")
 
+    @app.get("/live-voice.mjs")
+    def live_voice_module():
+        return FileResponse(WEB / "live-voice.mjs", media_type="text/javascript")
+
+    @app.get("/voice-metrics.mjs")
+    def voice_metrics_module():
+        return FileResponse(WEB / "voice-metrics.mjs", media_type="text/javascript")
+
     @app.post("/api/sessions")
     def create_session(body: SessionRequest):
         if body.customer_id not in {"cust-a", "cust-b"}:
@@ -122,8 +133,7 @@ def create_app(db_path: Path | None = None, clock=time, realtime_provider=None):
         sessions[token] = body.customer_id
         return {"session_id": token, "customer_id": body.customer_id}
 
-    @app.post("/api/realtime/call")
-    async def realtime_call(request: Request, context=current_session):
+    async def create_voice_call(request: Request, context, calls):
         if (
             request.headers.get("content-type", "").split(";", 1)[0].strip().lower()
             != "application/sdp"
@@ -136,12 +146,25 @@ def create_app(db_path: Path | None = None, clock=time, realtime_provider=None):
                 raise HTTPException(413, "SDP offer too large")
         if not offer or not offer.startswith(b"v=0"):
             raise HTTPException(400, "Invalid SDP offer")
-        call_id, answer = await voice_calls.create(context[0], bytes(offer))
+        call_id, answer = await calls.create(context[0], bytes(offer))
         return Response(
             answer,
             media_type="application/sdp",
             headers={"X-Call-ID": call_id, "Cache-Control": "no-store"},
         )
+
+    @app.post("/api/realtime/call")
+    async def realtime_call(request: Request, context=current_session):
+        return await create_voice_call(request, context, voice_calls)
+
+    @app.post("/api/live/call")
+    async def live_call(request: Request, context=current_session):
+        return await create_voice_call(request, context, live_calls)
+
+    @app.delete("/api/live/call/{call_id}")
+    async def end_live_call(call_id: str, context=current_session):
+        await live_calls.end(call_id, context[0])
+        return Response(status_code=204)
 
     @app.delete("/api/realtime/call/{call_id}")
     async def end_realtime_call(call_id: str, context=current_session):
